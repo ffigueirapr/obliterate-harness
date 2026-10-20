@@ -1,0 +1,59 @@
+id: visual_novel
+name: Visual novel
+description: { en: "Branching narrative: routes, scenes, choices, flags and endings.", pt: "Narrativa ramificada: rotas, cenas, escolhas, flags e finais." }
+include: [nucleo]
+units: { en: [Work, Route, Scene, Choice, Ending], pt: [Obra, Rota, Cena, Escolha, Final] }
+templateUnit: { en: Scene, pt: Cena }
+suggestedTemplates: [tres_atos, kishotenketsu]
+nodeTypes:
+  - name: { en: Work, pt: Obra }
+    base: Unit
+    attributes:
+      - { key: { en: premise, pt: premissa }, label: { en: Premise, pt: Premissa }, dataType: text_long, defaultCriticality: critical }
+  - name: { en: Route, pt: Rota }
+    base: Unit
+    attributes:
+      - { key: { en: focus_character, pt: personagem_foco }, label: { en: Focus character, pt: Personagem foco }, dataType: node_ref, refType: { en: Character, pt: Personagem } }
+      - { key: { en: entry_condition, pt: condicao_entrada }, label: { en: Entry condition, pt: Condição de entrada }, dataType: text_long, defaultCriticality: critical }
+  - name: { en: Scene, pt: Cena }
+    base: Unit
+    attributes:
+      - { key: { en: background, pt: cenario }, label: { en: Background, pt: Cenário (background) }, dataType: node_ref, refType: "@Place", role: location }
+      - { key: { en: music, pt: musica }, label: { en: Music, pt: Música }, dataType: string_short }
+      - { key: script, label: Script, dataType: text_long, role: manuscript }
+  - name: { en: Choice, pt: Escolha }
+    base: Unit
+    attributes:
+      - { key: { en: prompt, pt: pergunta }, label: { en: Question to the player, pt: Pergunta ao jogador }, dataType: text_long }
+      - { key: { en: options, pt: opcoes }, label: { en: Options, pt: Opções }, dataType: list, itemType: string_short }
+  - name: { en: Ending, pt: Final }
+    base: Unit
+    attributes:
+      - { key: { en: kind, pt: tipo }, label: { en: Kind, pt: Tipo }, dataType: enum, options: { en: [good, normal, bad, "true", secret], pt: [bom, normal, ruim, verdadeiro, secreto] } }
+      - { key: { en: conditions, pt: condicoes }, label: { en: Conditions, pt: Condições }, dataType: text_long, defaultCriticality: critical }
+  - name: Flag
+    base: Concept
+    description: { en: State variable that choices change., pt: Variável de estado que as escolhas alteram. }
+    attributes:
+      - { key: { en: kind, pt: tipo }, label: { en: Kind, pt: Tipo }, dataType: enum, options: { en: [boolean, counter, affection], pt: [booleana, contador, afeicao] } }
+      - { key: { en: initial_value, pt: valor_inicial }, label: { en: Initial value, pt: Valor inicial }, dataType: string_short }
+relTypes:
+  - { name: { en: LEADS_TO, pt: LEVA_A }, base: CAUSAL,
+      description: { en: "An option of a choice leads to a scene (describe the option).", pt: "Opção de uma escolha leva a uma cena (descreva a opção)." },
+      allowed: [{ from: { en: Choice, pt: Escolha }, to: "@Unit" }, { from: { en: Scene, pt: Cena }, to: "@Unit" }] }
+  - { name: { en: CHANGES_FLAG, pt: ALTERA_FLAG }, base: CAUSAL,
+      description: { en: "A choice/scene changes a flag (describe the effect).", pt: "Escolha/cena altera uma flag (descreva o efeito)." }, allowed: [{ from: "@Unit", to: Flag }] }
+  - { name: { en: REQUIRES_FLAG, pt: REQUER_FLAG }, base: CAUSAL,
+      description: { en: "A route/scene/ending requires a flag condition.", pt: "Rota/cena/final exige uma condição de flag." }, allowed: [{ from: "@Unit", to: Flag }] }
+directives:
+  - id: vn-ramos
+    text: { en: "Every choice needs a visible consequence (immediate or delayed) recorded with LEADS_TO or CHANGES_FLAG; choices without effect frustrate the player.",
+            pt: "Toda escolha precisa de consequência visível (imediata ou tardia) registrada com LEVA_A ou ALTERA_FLAG; escolhas sem efeito frustram o jogador." }
+    when: [context, write]
+    types: { en: [Choice], pt: [Escolha] }
+    priority: 5
+  - id: vn-consistencia-rotas
+    text: { en: "Facts of the common trunk hold in every route; what happens only in one route cannot be mentioned in another.",
+            pt: "Fatos do tronco comum valem em todas as rotas; o que só acontece numa rota não pode ser citado em outra." }
+    when: [context]
+    priority: 6

@@ -1,0 +1,71 @@
+name: obliterate-harness
+
+services:
+  neo4j:
+    image: neo4j:5.26.32-community
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-harness-dev}
+      NEO4J_PLUGINS: '["apoc", "graph-data-science"]'
+      NEO4J_server_memory_heap_initial__size: 1G
+      NEO4J_server_memory_heap_max__size: 2G
+      NEO4J_server_memory_pagecache_size: 1G
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*,gds.*
+    ports: ["127.0.0.1:7574:7474", "127.0.0.1:7787:7687"]
+    volumes:
+      - neo4j_data:/data
+      - neo4j_plugins:/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: harness
+      POSTGRES_USER: harness
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-harness}
+    ports: ["127.0.0.1:5532:5432"]
+    volumes: [pg_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harness -d harness"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  ollama:
+    image: ollama/ollama:0.35.1
+    profiles: ["ai"]
+    ports: ["127.0.0.1:11534:11434"]
+    volumes: [ollama:/root/.ollama]
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+
+  app:
+    build: ./backend
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-harness-dev}
+      PG_URL: jdbc:postgresql://postgres:5432/harness
+      PG_PASSWORD: ${PG_PASSWORD:-harness}
+      HARNESS_TIMEZONE: ${HARNESS_TIMEZONE:-America/Sao_Paulo}
+      HARNESS_PUBLIC_URL: ${HARNESS_PUBLIC_URL:-http://localhost:8180}
+    mem_limit: 2g
+    depends_on:
+      neo4j: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    ports: ["127.0.0.1:8180:8080"]
+
+  web:
+    build: ./frontend
+    depends_on: [app]
+    ports: ["127.0.0.1:5273:80"]
+
+volumes:
+  neo4j_data: {}
+  neo4j_plugins: {}
+  pg_data: {}
+  ollama: {}

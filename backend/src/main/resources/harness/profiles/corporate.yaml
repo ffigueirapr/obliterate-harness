@@ -1,0 +1,268 @@
+# Corporate context: a company's internal "brain" that an LLM reads through MCP to work with structured, sourced information.
+# Bilingual: any text may be {en: ..., pt: ...}. Keep the same order of items/options in both languages.
+id: corporate
+context: corporate
+name: { en: Corporate brain, pt: Cérebro corporativo }
+description: { en: "Teams, people, clients, contracts, pricing, products, business rules, integrations, documents and go-to-market knowledge.",
+               pt: "Equipes, pessoas, clientes, contratos, pricing, produtos, regras de negócio, integrações, documentos e conhecimento de ida a mercado." }
+
+objectTypes: []
+
+nodeTypes:
+  # ---------------------------------------------------------------- people and accounts
+  - name: { en: Team, pt: Equipe }
+    base: Agent
+    color: "#4f8cff"
+    description: { en: "A team or area of the company (BizDev, Customer Success, Product, Engineering, Legal...).",
+                   pt: "Uma equipe ou área da empresa (BizDev, Customer Success, Produto, Engenharia, Jurídico...)." }
+    attributes:
+      - { key: { en: area, pt: area }, label: { en: Area, pt: Área }, dataType: enum,
+          options: { en: [bizdev, sales, customer_success, support, product, engineering, operations, finance, legal, marketing, leadership, other],
+                     pt: [bizdev, vendas, customer_success, suporte, produto, engenharia, operacoes, financeiro, juridico, marketing, diretoria, outra] } }
+      - { key: { en: mission, pt: missao }, label: { en: Mission / scope, pt: Missão / escopo }, dataType: text_long }
+      - { key: { en: lead, pt: lider }, label: { en: Lead, pt: Líder }, dataType: node_ref, refType: { en: Person, pt: Pessoa } }
+      - { key: { en: channel, pt: canal }, label: { en: "Contact channel (Slack, e-mail)", pt: "Canal de contato (Slack, e-mail)" }, dataType: string_short }
+  - name: { en: Person, pt: Pessoa }
+    base: Agent
+    color: "#6aa9ff"
+    description: { en: "Someone who works at the company (or a key contact at a client or partner).",
+                   pt: "Alguém que trabalha na empresa (ou um contato-chave num cliente ou parceiro)." }
+    attributes:
+      - { key: { en: job_title, pt: cargo }, label: { en: Job title, pt: Cargo }, dataType: string_short }
+      - { key: { en: team, pt: equipe }, label: { en: Team, pt: Equipe }, dataType: node_ref, refType: { en: Team, pt: Equipe } }
+      - { key: { en: responsibilities, pt: responsabilidades }, label: { en: Responsibilities, pt: Responsabilidades }, dataType: text_long }
+      - { key: email, label: E-mail, dataType: string_short }
+      - { key: { en: affiliation, pt: vinculo }, label: { en: Affiliation, pt: Vínculo }, dataType: enum,
+          options: { en: [employee, contractor, client_contact, partner_contact], pt: [colaborador, terceiro, contato_cliente, contato_parceiro] } }
+  - name: { en: Client, pt: Cliente }
+    base: Agent
+    color: "#f5a524"
+    description: { en: "A client account: who they are, what they have enabled, which rules apply and who serves them.",
+                   pt: "Uma conta de cliente: quem é, o que tem habilitado, quais regras se aplicam e quem atende." }
+    attributes:
+      - { key: { en: segment, pt: segmento }, label: { en: Segment, pt: Segmento }, dataType: string_short }
+      - { key: tier, label: Tier, dataType: enum, options: { en: [strategic, key, standard, long_tail], pt: [estrategico, chave, padrao, cauda_longa] } }
+      - { key: status, label: Status, dataType: enum,
+          options: { en: [prospect, onboarding, active, at_risk, churned], pt: [prospect, onboarding, ativo, em_risco, churn] } }
+      - { key: { en: region, pt: regiao }, label: { en: Region, pt: Região }, dataType: string_short }
+      - { key: { en: account_notes, pt: notas_da_conta }, label: { en: Account notes, pt: Notas da conta }, dataType: text_long }
+      - { key: { en: special_conditions, pt: condicoes_especiais }, label: { en: Special conditions, pt: Condições especiais }, dataType: text_long,
+          defaultCriticality: critical }
+      - { key: { en: crm_link, pt: link_crm }, label: { en: CRM link, pt: Link no CRM }, dataType: string_short, role: link }
+  - name: { en: Partner, pt: Parceiro }
+    base: Agent
+    color: "#c084fc"
+    description: { en: "Reseller, technology partner or supplier.", pt: "Revenda, parceiro de tecnologia ou fornecedor." }
+    attributes:
+      - { key: { en: kind, pt: tipo }, label: { en: Kind, pt: Tipo }, dataType: enum,
+          options: { en: [reseller, technology, supplier, referral, other], pt: [revenda, tecnologia, fornecedor, indicacao, outro] } }
+      - { key: { en: terms, pt: termos }, label: { en: Partnership terms, pt: Termos da parceria }, dataType: text_long }
+  - name: { en: Competitor, pt: Concorrente }
+    base: Agent
+    color: "#ef4444"
+    attributes:
+      - { key: { en: positioning, pt: posicionamento }, label: { en: Positioning, pt: Posicionamento }, dataType: text_long }
+      - { key: { en: strengths, pt: forcas }, label: { en: Strengths, pt: Forças }, dataType: text_long }
+      - { key: { en: weaknesses, pt: fraquezas }, label: { en: Weaknesses, pt: Fraquezas }, dataType: text_long }
+      - { key: { en: pricing_notes, pt: notas_de_preco }, label: { en: Pricing notes, pt: Notas de preço }, dataType: text_long }
+
+  # ---------------------------------------------------------------- offer and commercial terms
+  - name: { en: Product, pt: Produto }
+    base: Object
+    color: "#22c55e"
+    description: { en: "A product, module or feature that can be enabled for clients.", pt: "Um produto, módulo ou funcionalidade que pode ser habilitado para clientes." }
+    attributes:
+      - { key: { en: category, pt: categoria }, label: { en: Category, pt: Categoria }, dataType: string_short }
+      - { key: { en: what_it_does, pt: o_que_faz }, label: { en: What it does, pt: O que faz }, dataType: text_long }
+      - { key: status, label: Status, dataType: enum, options: { en: [planned, beta, generally_available, deprecated], pt: [planejado, beta, disponivel, descontinuado] } }
+      - { key: { en: owner_team, pt: equipe_dona }, label: { en: Owner team, pt: Equipe dona }, dataType: node_ref, refType: { en: Team, pt: Equipe } }
+      - { key: { en: limitations, pt: limitacoes }, label: { en: Known limitations, pt: Limitações conhecidas }, dataType: text_long, defaultCriticality: critical }
+  - name: { en: Contract, pt: Contrato }
+    base: Object
+    color: "#eab308"
+    description: { en: "A contract or order form with a client or partner.", pt: "Um contrato ou ordem de serviço com cliente ou parceiro." }
+    attributes:
+      - { key: { en: number, pt: numero }, label: { en: Number / reference, pt: Número / referência }, dataType: string_short }
+      - { key: status, label: Status, dataType: enum,
+          options: { en: [draft, negotiation, signed, active, expired, terminated], pt: [rascunho, negociacao, assinado, vigente, expirado, rescindido] } }
+      - { key: { en: start_date, pt: inicio }, label: { en: Start date, pt: Início }, dataType: string_short }
+      - { key: { en: end_date, pt: fim }, label: { en: End date, pt: Fim }, dataType: string_short }
+      - { key: { en: value, pt: valor }, label: { en: Value, pt: Valor }, dataType: string_short }
+      - { key: sla, label: SLA, dataType: text_long }
+      - { key: { en: key_clauses, pt: clausulas_chave }, label: { en: Key clauses, pt: Cláusulas-chave }, dataType: text_long, defaultCriticality: foundational }
+      - { key: { en: renewal, pt: renovacao }, label: { en: Renewal terms, pt: Regras de renovação }, dataType: text_long }
+      - { key: { en: document_link, pt: link_documento }, label: { en: Signed document, pt: Documento assinado }, dataType: string_short, role: link }
+  - name: Pricing
+    base: Concept
+    color: "#f97316"
+    description: { en: "A price table, pricing model or negotiated price.", pt: "Uma tabela de preço, modelo de precificação ou preço negociado." }
+    attributes:
+      - { key: { en: model, pt: modelo }, label: { en: Model, pt: Modelo }, dataType: enum,
+          options: { en: [subscription, usage_based, per_transaction, fixed_fee, tiered, hybrid], pt: [assinatura, por_uso, por_transacao, valor_fixo, faixas, hibrido] } }
+      - { key: { en: currency, pt: moeda }, label: { en: Currency, pt: Moeda }, dataType: string_short }
+      - { key: { en: prices, pt: precos }, label: { en: Prices / table, pt: Preços / tabela }, dataType: text_long, defaultCriticality: critical }
+      - { key: { en: discount_policy, pt: politica_de_desconto }, label: { en: Discount policy, pt: Política de desconto }, dataType: text_long, defaultCriticality: critical }
+      - { key: { en: valid_from, pt: vigencia_inicio }, label: { en: Valid from, pt: Vigente desde }, dataType: string_short }
+      - { key: { en: valid_until, pt: vigencia_fim }, label: { en: Valid until, pt: Vigente até }, dataType: string_short }
+      - { key: { en: source_link, pt: link_fonte }, label: { en: Source, pt: Fonte }, dataType: string_short, role: link }
+  - name: { en: Opportunity, pt: Oportunidade }
+    base: Event
+    color: "#a3e635"
+    description: { en: "A deal in the pipeline.", pt: "Um negócio no funil." }
+    attributes:
+      - { key: { en: stage, pt: etapa }, label: { en: Stage, pt: Etapa }, dataType: enum,
+          options: { en: [lead, qualified, proposal, negotiation, won, lost], pt: [lead, qualificado, proposta, negociacao, ganho, perdido] } }
+      - { key: { en: value, pt: valor }, label: { en: Estimated value, pt: Valor estimado }, dataType: string_short }
+      - { key: { en: expected_close, pt: fechamento_previsto }, label: { en: Expected close, pt: Fechamento previsto }, dataType: string_short }
+      - { key: { en: next_step, pt: proximo_passo }, label: { en: Next step, pt: Próximo passo }, dataType: text_long }
+
+  # ---------------------------------------------------------------- rules, integrations and how we work
+  - name: { en: Business rule, pt: Regra de negócio }
+    base: Concept
+    color: "#f43f5e"
+    description: { en: "A rule the AI and the team must follow (eligibility, limits, approvals, client-specific behaviour).",
+                   pt: "Uma regra que a IA e o time precisam seguir (elegibilidade, limites, aprovações, comportamento específico de cliente)." }
+    attributes:
+      - { key: { en: rule, pt: regra }, label: { en: Rule, pt: Regra }, dataType: text_long, required: true, defaultCriticality: foundational }
+      - { key: { en: scope, pt: escopo }, label: { en: Applies to, pt: Vale para }, dataType: enum,
+          options: { en: [all_clients, specific_client, product, integration, internal_process], pt: [todos_os_clientes, cliente_especifico, produto, integracao, processo_interno] } }
+      - { key: { en: exceptions, pt: excecoes }, label: { en: Exceptions, pt: Exceções }, dataType: text_long }
+      - { key: { en: rationale, pt: motivo }, label: { en: Why it exists, pt: Por que existe }, dataType: text_long }
+      - { key: status, label: Status, dataType: enum, options: { en: [draft, in_force, retired], pt: [rascunho, vigente, revogada] } }
+      - { key: { en: source_link, pt: link_fonte }, label: { en: Source, pt: Fonte }, dataType: string_short, role: link }
+  - name: { en: Integration, pt: Integração }
+    base: Object
+    color: "#14b8a6"
+    description: { en: "How a client or partner connects to us (API, files, webhooks), with its technical rules.",
+                   pt: "Como um cliente ou parceiro se conecta a nós (API, arquivos, webhooks), com suas regras técnicas." }
+    attributes:
+      - { key: { en: method, pt: metodo }, label: { en: Method, pt: Método }, dataType: enum,
+          options: { en: [rest_api, webhook, file_sftp, batch, sdk, manual, other], pt: [api_rest, webhook, arquivo_sftp, lote, sdk, manual, outro] } }
+      - { key: status, label: Status, dataType: enum, options: { en: [planned, in_implementation, live, paused, retired], pt: [planejada, em_implantacao, em_producao, pausada, desativada] } }
+      - { key: { en: technical_rules, pt: regras_tecnicas }, label: { en: Technical rules, pt: Regras técnicas }, dataType: text_long, defaultCriticality: critical }
+      - { key: { en: environments, pt: ambientes }, label: { en: Environments / endpoints, pt: Ambientes / endpoints }, dataType: text_long }
+      - { key: { en: docs_link, pt: link_documentacao }, label: { en: Technical docs, pt: Documentação técnica }, dataType: string_short, role: link }
+  - name: Playbook
+    base: Concept
+    color: "#0ea5e9"
+    description: { en: "How we do something: a process, checklist or standard answer.", pt: "Como fazemos algo: um processo, checklist ou resposta padrão." }
+    attributes:
+      - { key: { en: when_to_use, pt: quando_usar }, label: { en: When to use, pt: Quando usar }, dataType: text_long }
+      - { key: { en: steps, pt: passos }, label: { en: Steps, pt: Passos }, dataType: text_long }
+      - { key: { en: source_link, pt: link_fonte }, label: { en: Source, pt: Fonte }, dataType: string_short, role: link }
+
+  # ---------------------------------------------------------------- knowledge
+  - name: { en: Document, pt: Documento }
+    base: Media
+    color: "#94a3b8"
+    description: { en: "A document with more detail elsewhere (Drive, Confluence, SharePoint...). The node holds the summary; the link holds the detail.",
+                   pt: "Um documento com mais detalhe em outro lugar (Drive, Confluence, SharePoint...). O nó guarda o resumo; o link, o detalhe." }
+    attributes:
+      - { key: { en: link, pt: link }, label: { en: Link, pt: Link }, dataType: string_short, role: link }
+      - { key: { en: doc_type, pt: tipo_de_documento }, label: { en: Type, pt: Tipo }, dataType: enum,
+          options: { en: [contract, proposal, policy, playbook, technical, presentation, meeting_notes, report, other],
+                     pt: [contrato, proposta, politica, playbook, tecnico, apresentacao, ata, relatorio, outro] } }
+      - { key: { en: summary_text, pt: resumo_do_conteudo }, label: { en: Content summary, pt: Resumo do conteúdo }, dataType: text_long }
+      - { key: { en: last_reviewed, pt: ultima_revisao }, label: { en: Last reviewed, pt: Última revisão }, dataType: string_short }
+      - { key: { en: confidentiality, pt: confidencialidade }, label: { en: Confidentiality, pt: Confidencialidade }, dataType: enum,
+          options: { en: [public, internal, confidential, restricted], pt: [publico, interno, confidencial, restrito] } }
+  - name: { en: Market insight, pt: Inteligência de mercado }
+    base: Concept
+    color: "#8b5cf6"
+    description: { en: "Go-to-market knowledge: segment, persona, positioning, competitive analysis, campaign learnings.",
+                   pt: "Conhecimento de ida a mercado: segmento, persona, posicionamento, análise competitiva, aprendizados de campanha." }
+    attributes:
+      - { key: { en: kind, pt: tipo }, label: { en: Kind, pt: Tipo }, dataType: enum,
+          options: { en: [segment, persona, positioning, value_proposition, competitive_analysis, campaign, pricing_benchmark, objection_handling],
+                     pt: [segmento, persona, posicionamento, proposta_de_valor, analise_competitiva, campanha, benchmark_de_preco, contorno_de_objecao] } }
+      - { key: { en: insight, pt: insight }, label: Insight, dataType: text_long }
+      - { key: { en: evidence, pt: evidencia }, label: { en: Evidence, pt: Evidência }, dataType: text_long }
+      - { key: { en: source_link, pt: link_fonte }, label: { en: Source, pt: Fonte }, dataType: string_short, role: link }
+  - name: { en: Decision, pt: Decisão }
+    base: Event
+    color: "#64748b"
+    description: { en: "A decision or meeting outcome worth remembering, with who decided and why.", pt: "Uma decisão ou resultado de reunião que vale lembrar, com quem decidiu e por quê." }
+    attributes:
+      - { key: { en: date, pt: data }, label: { en: Date, pt: Data }, dataType: string_short }
+      - { key: { en: decision, pt: decisao }, label: { en: Decision, pt: Decisão }, dataType: text_long, defaultCriticality: critical }
+      - { key: { en: rationale, pt: motivo }, label: { en: Why, pt: Por quê }, dataType: text_long }
+  - name: { en: Glossary term, pt: Termo do glossário }
+    base: Concept
+    color: "#a8a29e"
+    attributes:
+      - { key: { en: definition, pt: definicao }, label: { en: Definition, pt: Definição }, dataType: text_long }
+      - { key: { en: synonyms, pt: sinonimos }, label: { en: Synonyms, pt: Sinônimos }, dataType: string_short }
+
+relTypes:
+  - { name: { en: MEMBER_OF, pt: MEMBRO_DE }, base: SOCIAL, inverseName: { en: has member, pt: tem como membro },
+      allowed: [{ from: { en: Person, pt: Pessoa }, to: { en: Team, pt: Equipe } }] }
+  - { name: { en: LEADS, pt: LIDERA }, base: SOCIAL, allowed: [{ from: { en: Person, pt: Pessoa }, to: { en: Team, pt: Equipe } }] }
+  - { name: { en: SERVES, pt: ATENDE }, base: SOCIAL, inverseName: { en: served by, pt: atendido por },
+      description: { en: "Who serves the account; describe the role (BizDev, account manager, CS, support).",
+                     pt: "Quem atende a conta; descreva o papel (BizDev, gerente de conta, CS, suporte)." },
+      allowed: [{ from: { en: Person, pt: Pessoa }, to: { en: Client, pt: Cliente } }, { from: { en: Team, pt: Equipe }, to: { en: Client, pt: Cliente } },
+                { from: { en: Person, pt: Pessoa }, to: { en: Partner, pt: Parceiro } }] }
+  - { name: { en: CONTACT_AT, pt: CONTATO_EM }, base: SOCIAL, description: { en: "Key contact person at the client or partner.", pt: "Pessoa de contato no cliente ou parceiro." },
+      allowed: [{ from: { en: Person, pt: Pessoa }, to: { en: Client, pt: Cliente } }, { from: { en: Person, pt: Pessoa }, to: { en: Partner, pt: Parceiro } }] }
+  - { name: { en: HAS_CONTRACT, pt: TEM_CONTRATO }, base: POSSESSION,
+      allowed: [{ from: { en: Client, pt: Cliente }, to: { en: Contract, pt: Contrato } }, { from: { en: Partner, pt: Parceiro }, to: { en: Contract, pt: Contrato } }] }
+  - { name: { en: HAS_PRODUCT_ENABLED, pt: TEM_PRODUTO_HABILITADO }, base: POSSESSION,
+      description: { en: "Product/module enabled for the client (use time anchors or the description for since when and conditions).",
+                     pt: "Produto/módulo habilitado para o cliente (use a descrição para desde quando e em que condições)." },
+      allowed: [{ from: { en: Client, pt: Cliente }, to: { en: Product, pt: Produto } }] }
+  - { name: { en: COVERS, pt: COBRE }, base: REFERENCE, description: { en: "What a contract covers.", pt: "O que um contrato cobre." },
+      allowed: [{ from: { en: Contract, pt: Contrato }, to: { en: Product, pt: Produto } }, { from: { en: Contract, pt: Contrato }, to: { en: Integration, pt: Integração } }] }
+  - { name: { en: PRICED_BY, pt: PRECIFICADO_POR }, base: REFERENCE,
+      allowed: [{ from: { en: Contract, pt: Contrato }, to: Pricing }, { from: { en: Product, pt: Produto }, to: Pricing }, { from: { en: Client, pt: Cliente }, to: Pricing }] }
+  - { name: { en: GOVERNED_BY, pt: REGIDO_POR }, base: REFERENCE, inverseName: { en: governs, pt: rege },
+      description: { en: "A business rule that applies to this client, product, contract or integration.", pt: "Uma regra de negócio que vale para este cliente, produto, contrato ou integração." },
+      allowed: [{ from: "*", to: { en: Business rule, pt: Regra de negócio } }] }
+  - { name: { en: INTEGRATES_VIA, pt: INTEGRA_VIA }, base: REFERENCE,
+      allowed: [{ from: { en: Client, pt: Cliente }, to: { en: Integration, pt: Integração } }, { from: { en: Partner, pt: Parceiro }, to: { en: Integration, pt: Integração } }] }
+  - { name: { en: CONNECTS_TO, pt: CONECTA_A }, base: REFERENCE, description: { en: "Product the integration reaches.", pt: "Produto que a integração alcança." },
+      allowed: [{ from: { en: Integration, pt: Integração }, to: { en: Product, pt: Produto } }] }
+  - { name: { en: DOCUMENTED_IN, pt: DOCUMENTADO_EM }, base: REFERENCE, inverseName: { en: documents, pt: documenta },
+      description: { en: "Where the details are.", pt: "Onde estão os detalhes." }, allowed: [{ from: "*", to: { en: Document, pt: Documento } }] }
+  - { name: { en: OWNS, pt: E_DONO_DE }, base: POSSESSION, inverseName: { en: owned by, pt: tem como dono },
+      description: { en: "Accountable owner (keeps it correct and up to date).", pt: "Dono responsável (mantém correto e atualizado)." },
+      allowed: [{ from: { en: Person, pt: Pessoa }, to: "*" }, { from: { en: Team, pt: Equipe }, to: "*" }] }
+  - { name: { en: OPPORTUNITY_WITH, pt: OPORTUNIDADE_COM }, base: PARTICIPATION,
+      allowed: [{ from: { en: Opportunity, pt: Oportunidade }, to: { en: Client, pt: Cliente } }] }
+  - { name: { en: OFFERS, pt: OFERECE }, base: REFERENCE, allowed: [{ from: { en: Opportunity, pt: Oportunidade }, to: { en: Product, pt: Produto } }] }
+  - { name: { en: COMPETES_WITH, pt: CONCORRE_COM }, base: SOCIAL, allowed: [{ from: { en: Competitor, pt: Concorrente }, to: { en: Product, pt: Produto } }] }
+  - { name: { en: CONCERNS, pt: TRATA_DE }, base: REFERENCE, description: { en: "What an insight, decision or playbook is about.", pt: "Do que trata um insight, decisão ou playbook." },
+      allowed: [{ from: { en: Market insight, pt: Inteligência de mercado }, to: "*" }, { from: { en: Decision, pt: Decisão }, to: "*" }, { from: Playbook, to: "*" }] }
+  - { name: { en: DECIDED_BY, pt: DECIDIDO_POR }, base: PARTICIPATION,
+      allowed: [{ from: { en: Decision, pt: Decisão }, to: { en: Person, pt: Pessoa } }, { from: { en: Decision, pt: Decisão }, to: { en: Team, pt: Equipe } }] }
+  - { name: { en: DEPENDS_ON, pt: DEPENDE_DE }, base: CAUSAL, description: { en: "Technical or commercial dependency.", pt: "Dependência técnica ou comercial." },
+      allowed: [{ from: { en: Product, pt: Produto }, to: { en: Product, pt: Produto } }, { from: { en: Integration, pt: Integração }, to: { en: Integration, pt: Integração } }] }
+  - { name: { en: RELATES_TO, pt: RELACIONA_COM }, base: REFERENCE, description: { en: "Generic link; describe its nature.", pt: "Ligação genérica; descreva a natureza." },
+      allowed: [{ from: "*", to: "*" }] }
+
+directives:
+  - id: corp-sources
+    text: { en: "Answer only from what is in the graph. Cite the node and, when there is one, its linked Document or source link. If the graph does not have it, say so and name who owns the topic (OWNS / SERVES) instead of guessing.",
+            pt: "Responda só com o que está no grafo. Cite o nó e, quando houver, o Documento ligado ou o link de fonte. Se o grafo não tiver, diga isso e indique quem é dono do assunto (E_DONO_DE / ATENDE) em vez de supor." }
+    when: [session, context]
+    priority: 9
+  - id: corp-rules-binding
+    text: { en: "Business rules in force, contract key clauses and client special conditions are binding: never suggest or do anything that contradicts them. When in doubt, quote the rule.",
+            pt: "Regras de negócio vigentes, cláusulas-chave de contrato e condições especiais de cliente são vinculantes: nunca sugira nem faça algo que as contradiga. Na dúvida, cite a regra." }
+    when: [context, write, validate]
+    priority: 9
+  - id: corp-client-first
+    text: { en: "Before answering about a client, read its neighbourhood (graph_focus): who serves it, contracts, enabled products, pricing, governing rules and integrations.",
+            pt: "Antes de responder sobre um cliente, leia a vizinhança dele (graph_focus): quem atende, contratos, produtos habilitados, pricing, regras que o regem e integrações." }
+    when: [context]
+    types: { en: [Client], pt: [Cliente] }
+    priority: 7
+  - id: corp-write
+    text: { en: "When recording new information: search for duplicates first, keep official names, link it to its owner and to the source document, and mark binding content as critical or foundational.",
+            pt: "Ao registrar informação nova: procure duplicatas antes, mantenha os nomes oficiais, ligue ao dono e ao documento de origem, e marque o que é vinculante como critical ou foundational." }
+    when: [write]
+    priority: 6
+  - id: corp-confidential
+    text: { en: "Respect document confidentiality: do not copy confidential or restricted content into answers meant for people outside the owning team.",
+            pt: "Respeite a confidencialidade dos documentos: não copie conteúdo confidencial ou restrito para respostas destinadas a pessoas fora da equipe dona." }
+    when: [context]
+    priority: 5

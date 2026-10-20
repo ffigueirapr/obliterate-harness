@@ -1,0 +1,50 @@
+id: livro
+name: { en: Book / novel, pt: Livro / romance }
+description: { en: "Long prose: work, parts, chapters and scenes, focused on narrative voice and point of view.", pt: "Prosa longa: obra, partes, capítulos e cenas, com foco em voz narrativa e ponto de vista." }
+include: [nucleo]
+units: { en: [Work, Part, Chapter, Scene], pt: [Obra, Parte, Capítulo, Cena] }
+templateUnit: { en: Chapter, pt: Capítulo }
+suggestedTemplates: [tres_atos, jornada_do_heroi, save_the_cat, story_circle]
+nodeTypes:
+  - name: { en: Work, pt: Obra }
+    base: Unit
+    attributes:
+      - { key: { en: premise, pt: premissa }, label: { en: Premise, pt: Premissa }, dataType: text_long, defaultCriticality: critical }
+      - { key: { en: theme, pt: tema }, label: { en: Theme, pt: Tema }, dataType: text_long }
+      - { key: { en: audience, pt: publico }, label: { en: Audience, pt: Público }, dataType: string_short }
+      - { key: { en: tone, pt: tom }, label: { en: Tone, pt: Tom }, dataType: string_short }
+      - { key: { en: narrator, pt: narrador }, label: { en: Narrator, pt: Narrador }, dataType: enum,
+          options: { en: [first_person, third_limited, third_omniscient, second_person, multiple],
+                     pt: [primeira_pessoa, terceira_limitada, terceira_onisciente, segunda_pessoa, multiplo] } }
+  - name: { en: Part, pt: Parte }
+    base: Unit
+  - name: { en: Chapter, pt: Capítulo }
+    base: Unit
+    attributes:
+      - { key: status, label: Status, dataType: enum, options: { en: [idea, draft, revision, done], pt: [ideia, rascunho, revisao, pronto] } }
+      - { key: pov, label: { en: Point of view, pt: Ponto de vista }, dataType: node_ref, refType: { en: Character, pt: Personagem } }
+      - { key: { en: goal, pt: objetivo }, label: { en: Chapter goal, pt: Objetivo do capítulo }, dataType: text_long }
+      - { key: { en: text, pt: texto }, label: { en: Text, pt: Texto }, dataType: text_long, role: manuscript }
+      - { key: { en: words, pt: palavras }, label: { en: Words, pt: Palavras }, dataType: int, role: word_count }
+  - name: { en: Scene, pt: Cena }
+    base: Unit
+    attributes:
+      - { key: { en: goal, pt: objetivo }, label: { en: Scene goal, pt: Objetivo da cena }, dataType: text_long }
+      - { key: { en: conflict, pt: conflito }, label: { en: Conflict, pt: Conflito }, dataType: text_long }
+      - { key: { en: outcome, pt: resultado }, label: { en: "Outcome (yes, no, yes-but, no-and)", pt: "Resultado (sim, não, sim-mas, não-e)" }, dataType: enum,
+          options: { en: ["yes", "no", yes_but, no_and], pt: [sim, nao, sim_mas, nao_e] } }
+      - { key: pov, label: { en: Point of view, pt: Ponto de vista }, dataType: node_ref, refType: { en: Character, pt: Personagem } }
+      - { key: { en: location, pt: local }, label: { en: Location, pt: Local }, dataType: node_ref, refType: "@Place", role: location }
+      - { key: { en: text, pt: texto }, label: { en: Text, pt: Texto }, dataType: text_long, role: manuscript }
+directives:
+  - id: livro-pov
+    text: { en: "Respect the unit's point of view (pov attribute). The narrator does not know what the POV character does not know.",
+            pt: "Respeite o ponto de vista da unidade (atributo pov). O narrador não sabe o que o personagem-POV não sabe." }
+    when: [context]
+    priority: 6
+  - id: livro-cena
+    text: { en: "Every scene needs a goal, a conflict and an outcome; if one is missing, the scene is probably summary.",
+            pt: "Toda cena precisa de objetivo, conflito e resultado; se faltar um dos três, a cena provavelmente é resumo." }
+    when: [context]
+    types: { en: [Scene], pt: [Cena] }
+    priority: 4

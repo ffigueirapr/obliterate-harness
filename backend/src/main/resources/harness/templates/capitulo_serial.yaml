@@ -1,0 +1,20 @@
+id: capitulo_serial
+name: { en: Serial chapter, pt: Capítulo serial }
+description: { en: "Internal structure of a serial chapter (light novel, manga, web novel): open fast and close on a hook. Apply it over the scenes or pages of one chapter.",
+               pt: "Estrutura interna de um capítulo de série (light novel, mangá, web novel): abrir rápido e fechar com gancho. Aplique sobre as cenas ou páginas de um capítulo." }
+scope: unidade
+media: [light_novel, manga, livro]
+source: { en: "Serial publishing practice (synthesis)", pt: "Prática de publicação seriada (síntese)" }
+beats:
+  - { key: { en: recap, pt: retomada }, name: { en: Recap, pt: Retomada }, position: 0.0,
+      function: { en: "Picks up the previous hook or quickly grounds the reader.", pt: "Retoma o gancho anterior ou situa o leitor rapidamente." },
+      criteria: { en: "Within the first lines/panels the reader knows where they are.", pt: "Nas primeiras linhas/painéis o leitor sabe onde está." } }
+  - { key: { en: goal, pt: objetivo }, name: { en: Chapter goal, pt: Objetivo do capítulo }, position: 0.2,
+      function: { en: "What the characters try to do here.", pt: "O que os personagens tentam fazer aqui." }, criteria: { en: "A clear goal for the chapter.", pt: "Meta clara para o capítulo." } }
+  - { key: { en: complication, pt: complicacao }, name: { en: Complication, pt: Complicação }, position: 0.5,
+      function: { en: "Something gets in the way or changes the plan.", pt: "Algo atrapalha ou muda o plano." }, criteria: { en: "An obstacle or reveal mid-chapter.", pt: "Obstáculo ou revelação no meio do capítulo." } }
+  - { key: { en: peak, pt: pico }, name: { en: Peak, pt: Pico }, position: 0.8,
+      function: { en: "The most intense moment of the chapter.", pt: "Momento mais intenso do capítulo." }, criteria: { en: "The strongest action, emotion or reveal of the chapter.", pt: "Ação, emoção ou revelação mais forte do capítulo." } }
+  - { key: { en: hook, pt: gancho }, name: { en: Final hook, pt: Gancho final }, position: 1.0, devices: [cliffhanger],
+      function: { en: "Ends on an open question.", pt: "Termina numa pergunta aberta." },
+      criteria: { en: "The last scene/page leaves a question that pulls the next chapter.", pt: "Última cena/página deixa uma dúvida que puxa o próximo capítulo." } }

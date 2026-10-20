@@ -1,0 +1,20 @@
+id: spot_publicitario
+name: { en: Ad spot (15-60s), pt: Spot publicitário (15-60s) }
+description: { en: "Hook, problem, turn with the product, proof, message and call to action. Apply it over the shots of one spot.",
+               pt: "Gancho, problema, virada com o produto, prova, mensagem e chamada para ação. Aplique sobre os shots de um spot." }
+scope: unidade
+media: [publicidade]
+source: { en: "Problem-solution commercial structure (synthesis, close to AIDA)", pt: "Estrutura de comercial de problema-solução (síntese, próxima de AIDA)" }
+beats:
+  - { key: { en: hook, pt: gancho }, name: { en: Hook (0-3s), pt: Gancho (0-3s) }, position: 0.0,
+      function: { en: "Grab attention immediately.", pt: "Prender a atenção imediatamente." }, criteria: { en: "An image or line that breaks the pattern in the first seconds.", pt: "Imagem ou fala que interrompe o padrão nos primeiros segundos." } }
+  - { key: { en: problem, pt: problema }, name: { en: Problem / tension, pt: Problema / tensão }, position: 0.2,
+      function: { en: "Show the persona's pain or desire.", pt: "Mostrar a dor ou desejo da persona." }, criteria: { en: "The persona recognizes themselves in the situation.", pt: "A persona se reconhece na situação." } }
+  - { key: { en: turn, pt: virada }, name: { en: Turn with the product, pt: Virada com o produto }, position: 0.45,
+      function: { en: "The product comes in as the solution.", pt: "O produto entra como solução." }, criteria: { en: "The product resolves the tension shown.", pt: "O produto resolve a tensão mostrada." } }
+  - { key: { en: proof, pt: prova }, name: { en: Benefit and proof, pt: Benefício e prova }, position: 0.65,
+      function: { en: "Demonstrate the main benefit.", pt: "Demonstrar o benefício principal." }, criteria: { en: "A visible or demonstrated benefit, consistent with the product.", pt: "Benefício visível ou demonstrado, coerente com o produto." } }
+  - { key: { en: message, pt: mensagem }, name: { en: Key message, pt: Mensagem-chave }, position: 0.85,
+      function: { en: "Lock in the campaign message.", pt: "Fixar a mensagem da campanha." }, criteria: { en: "The key message appears literally or clearly.", pt: "A mensagem-chave aparece literal ou claramente." } }
+  - { key: cta, name: { en: CTA and brand, pt: CTA e marca }, position: 1.0,
+      function: { en: "Say what to do and sign with the brand.", pt: "Dizer o que fazer e assinar com a marca." }, criteria: { en: "An explicit CTA and the brand visible at the end.", pt: "CTA explícito e marca visível no fim." } }

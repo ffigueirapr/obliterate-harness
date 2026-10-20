@@ -1,0 +1,52 @@
+id: light_novel
+name: Light novel
+description: { en: "Serialized volumes, short chapters ending on a hook, illustrations and genre tropes.", pt: "Volumes seriados, capítulos curtos com gancho no fim, ilustrações e tropos do gênero." }
+include: [nucleo]
+units: { en: [Series, Volume, Chapter, Scene], pt: [Série, Volume, Capítulo, Cena] }
+templateUnit: { en: Chapter, pt: Capítulo }
+suggestedTemplates: [kishotenketsu, jornada_do_heroi, capitulo_serial]
+nodeTypes:
+  - name: { en: Series, pt: Série }
+    base: Unit
+    attributes:
+      - { key: { en: premise, pt: premissa }, label: { en: Premise, pt: Premissa }, dataType: text_long, defaultCriticality: critical }
+      - { key: { en: genres, pt: generos }, label: { en: Genres and tropes, pt: Gêneros e tropos }, dataType: list, itemType: string_short }
+      - { key: { en: audience, pt: publico }, label: { en: Audience, pt: Público }, dataType: enum,
+          options: { en: [shounen, shoujo, seinen, josei, general], pt: [shounen, shoujo, seinen, josei, geral] } }
+  - name: Volume
+    base: Unit
+    attributes:
+      - { key: { en: arc, pt: arco }, label: { en: Volume arc, pt: Arco do volume }, dataType: text_long }
+  - name: { en: Chapter, pt: Capítulo }
+    base: Unit
+    attributes:
+      - { key: status, label: Status, dataType: enum, options: { en: [idea, draft, revision, done], pt: [ideia, rascunho, revisao, pronto] } }
+      - { key: { en: final_hook, pt: gancho_final }, label: { en: Final hook, pt: Gancho final }, dataType: text_long }
+      - { key: { en: text, pt: texto }, label: { en: Text, pt: Texto }, dataType: text_long, role: manuscript }
+      - { key: { en: words, pt: palavras }, label: { en: Words, pt: Palavras }, dataType: int, role: word_count }
+  - name: { en: Scene, pt: Cena }
+    base: Unit
+    attributes:
+      - { key: { en: goal, pt: objetivo }, label: { en: Scene goal, pt: Objetivo da cena }, dataType: text_long }
+      - { key: { en: location, pt: local }, label: { en: Location, pt: Local }, dataType: node_ref, refType: "@Place", role: location }
+      - { key: { en: text, pt: texto }, label: { en: Text, pt: Texto }, dataType: text_long, role: manuscript }
+  - name: { en: Illustration, pt: Ilustração }
+    base: Media
+    attributes:
+      - { key: { en: description, pt: descricao }, label: { en: What it shows, pt: O que mostra }, dataType: text_long }
+      - { key: { en: file, pt: arquivo }, label: { en: File, pt: Arquivo }, dataType: media }
+relTypes:
+  - { name: { en: ILLUSTRATES, pt: ILUSTRA }, base: REFERENCE,
+      allowed: [{ from: { en: Illustration, pt: Ilustração }, to: "@Unit" }, { from: { en: Illustration, pt: Ilustração }, to: "@Agent" }] }
+directives:
+  - id: ln-gancho
+    text: { en: "End every chapter on a hook (open question, reveal or twist) that pulls the reader into the next.",
+            pt: "Termine cada capítulo com um gancho (pergunta aberta, revelação ou virada) que puxe o próximo." }
+    when: [context]
+    types: { en: [Chapter], pt: [Capítulo] }
+    priority: 5
+  - id: ln-tropos
+    text: { en: "Use genre tropes deliberately; record in the graph when a trope is subverted.",
+            pt: "Use os tropos do gênero de forma consciente; registre no grafo quando um tropo for subvertido." }
+    when: [context]
+    priority: 2

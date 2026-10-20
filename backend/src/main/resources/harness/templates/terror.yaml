@@ -1,0 +1,35 @@
+id: terror
+name: { en: Horror, pt: Terror }
+description: { en: "Escalating fear: from normality to the revealed threat and the confrontation, with strict control of what is shown.",
+               pt: "Escalada do medo: da normalidade à ameaça revelada e ao confronto, com controle rigoroso do que se mostra." }
+scope: obra
+media: [livro, filme_serie, jogo, rpg_mesa, manga]
+source: { en: "Horror genre conventions (synthesis)", pt: "Convenções do gênero terror (síntese)" }
+beats:
+  - { key: { en: normality, pt: normalidade }, name: { en: Normality, pt: Normalidade }, position: 0.0, devices: [foreshadowing],
+      function: { en: "Routine with a small dissonance.", pt: "Rotina com pequena dissonância." },
+      criteria: { en: "Ordinary characters, with something slightly out of place.", pt: "Personagens comuns, com algo levemente fora do lugar." } }
+  - { key: { en: first_sign, pt: primeiro_sinal }, name: { en: First sign, pt: Primeiro sinal }, position: 0.1,
+      function: { en: "Something inexplicable happens.", pt: "Algo inexplicável acontece." },
+      criteria: { en: "A strange event that can still be rationalized.", pt: "Evento estranho que ainda pode ser racionalizado." } }
+  - { key: { en: denial, pt: negacao }, name: { en: Denial and investigation, pt: Negação e investigação }, position: 0.25, devices: [red_herring],
+      function: { en: "Characters explain it away or ignore it; someone investigates.", pt: "Personagens explicam ou ignoram; alguém investiga." },
+      criteria: { en: "An attempt to rationalize; signs pile up.", pt: "Tentativa de racionalizar, sinais se acumulam." } }
+  - { key: { en: escalation, pt: escalada }, name: { en: Escalation, pt: Escalada }, position: 0.4,
+      function: { en: "Events grow more intense and personal.", pt: "Os eventos ficam mais intensos e pessoais." },
+      criteria: { en: "First victim or real harm; the fear becomes concrete.", pt: "Primeira vítima ou dano real; o medo vira concreto." } }
+  - { key: { en: reveal, pt: revelacao }, name: { en: The threat revealed, pt: Revelação da ameaça }, position: 0.55,
+      function: { en: "The nature (or part of it) of the evil is discovered.", pt: "Descobre-se a natureza (ou parte dela) do mal." },
+      criteria: { en: "The threat's rule is established (mark it as a foundational fact).", pt: "Regra da ameaça é estabelecida (marque como fato foundational)." } }
+  - { key: { en: isolation, pt: isolamento }, name: { en: Isolation, pt: Isolamento }, position: 0.65,
+      function: { en: "Escape routes and help are cut off.", pt: "Rotas de fuga e ajuda são cortadas." },
+      criteria: { en: "Characters are left alone with the threat.", pt: "Personagens ficam sozinhos com a ameaça." } }
+  - { key: { en: lowest_point, pt: ponto_mais_baixo }, name: { en: Lowest point, pt: Ponto mais baixo }, position: 0.78,
+      function: { en: "Losses and despair.", pt: "Perdas e desespero." },
+      criteria: { en: "An ally dies or a plan fails; there seems to be no way out.", pt: "Aliado morre ou plano falha; parece não haver saída." } }
+  - { key: { en: confrontation, pt: confronto }, name: { en: Confrontation, pt: Confronto }, position: 0.9,
+      function: { en: "Facing it using the revealed rule.", pt: "Enfrentamento usando a regra revelada." },
+      criteria: { en: "The confrontation respects the threat's rules established earlier.", pt: "O confronto respeita as regras da ameaça estabelecidas antes." } }
+  - { key: { en: echo, pt: eco }, name: { en: Ending with an echo, pt: Desfecho com eco }, position: 1.0, devices: [cliffhanger], required: false,
+      function: { en: "A resolution that leaves a residue of threat.", pt: "Resolução que deixa um resíduo de ameaça." },
+      criteria: { en: "Partial relief; something suggests the evil is not over.", pt: "Alívio parcial; algo sugere que o mal não acabou." } }

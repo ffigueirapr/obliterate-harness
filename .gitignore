@@ -1,0 +1,21 @@
+# Segredos locais
+.env
+
+# Artefatos locais (fora do repositório)
+backups/
+poc_serasa/
+plano_implementacao.md
+docs/
+
+# Build
+backend/build/
+backend/.gradle/
+frontend/node_modules/
+frontend/dist/
+
+# IDE / SO
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

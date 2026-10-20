@@ -1,0 +1,13 @@
+# Built-in context: stories and worlds (what the Harness Machine was built for).
+id: narrative
+name: { en: Stories & worlds, pt: Histórias e mundos }
+description: { en: "Novels, series, comics, games and tabletop campaigns: characters, world rules, chapters and scenes, hooks and structure templates.",
+               pt: "Romances, séries, quadrinhos, jogos e campanhas de RPG: personagens, regras do mundo, capítulos e cenas, ganchos e templates de estrutura." }
+icon: "📖"
+color: "#6d72ff"
+narrative: true
+presets: [livro, light_novel, manga, visual_novel, jogo, rpg_mesa, filme_serie, publicidade]
+defaultPreset: livro
+tabs: [world, characters, story, analysis, templates]
+instructions: { en: "Narrative context: the graph is the canon of the work. Keep continuity, respect world rules and secrets, and write in the project's language.",
+                pt: "Contexto narrativo: o grafo é o cânone da obra. Mantenha a continuidade, respeite as regras do mundo e os segredos, e escreva no idioma do projeto." }

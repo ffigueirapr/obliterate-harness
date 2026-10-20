@@ -1,0 +1,71 @@
+id: filme_serie
+name: { en: Film / series, pt: Filme / série }
+description: { en: "Audiovisual script: episodes, sequences, scenes and takes, with location, wardrobe, score and storyboard.", pt: "Roteiro audiovisual: episódios, sequências, cenas e takes, com locação, figurino, trilha e storyboard." }
+include: [nucleo]
+units: { en: [Work, Season, Episode, Sequence, Scene, Take], pt: [Obra, Temporada, Episódio, Sequência, Cena, Take] }
+templateUnit: { en: Scene, pt: Cena }
+suggestedTemplates: [save_the_cat, tres_atos, jornada_do_heroi, story_circle]
+nodeTypes:
+  - name: { en: Wardrobe, pt: Figurino }
+    base: Object
+    attributes:
+      - { key: { en: description, pt: descricao }, label: { en: Description, pt: Descrição }, dataType: text_long }
+  - name: { en: Score, pt: Trilha }
+    base: Media
+    attributes:
+      - { key: { en: mood, pt: clima }, label: { en: Mood / emotion, pt: Clima / emoção }, dataType: string_short }
+      - { key: { en: reference, pt: referencia }, label: { en: Reference, pt: Referência }, dataType: string_short }
+  - name: { en: Work, pt: Obra }
+    base: Unit
+    attributes:
+      - { key: logline, label: Logline, dataType: text_long, defaultCriticality: critical }
+      - { key: { en: format, pt: formato }, label: { en: Format, pt: Formato }, dataType: enum,
+          options: { en: [feature, short, series, miniseries], pt: [longa, curta, serie, minisserie] } }
+      - { key: { en: target_minutes, pt: duracao_alvo_min }, label: { en: Target length (min), pt: Duração alvo (min) }, dataType: int }
+  - name: { en: Season, pt: Temporada }
+    base: Unit
+  - name: { en: Episode, pt: Episódio }
+    base: Unit
+    attributes:
+      - { key: logline, label: { en: Episode logline, pt: Logline do episódio }, dataType: text_long }
+  - name: { en: Sequence, pt: Sequência }
+    base: Unit
+  - name: { en: Scene, pt: Cena }
+    base: Unit
+    attributes:
+      - { key: int_ext, label: INT/EXT, dataType: enum, options: [INT, EXT, INT_EXT] }
+      - { key: { en: time_of_day, pt: periodo }, label: { en: Time of day, pt: Período }, dataType: enum,
+          options: { en: [day, night, dawn, dusk], pt: [dia, noite, amanhecer, entardecer] } }
+      - { key: { en: location, pt: locacao }, label: { en: Location, pt: Locação }, dataType: node_ref, refType: "@Place", role: location }
+      - { key: { en: dramatic_goal, pt: objetivo }, label: { en: Dramatic goal, pt: Objetivo dramático }, dataType: text_long }
+      - { key: { en: screenplay, pt: roteiro }, label: { en: Screenplay text, pt: Texto do roteiro }, dataType: text_long, role: manuscript }
+      - { key: { en: pages, pt: paginas }, label: { en: Pages (≈ minutes), pt: Páginas (≈ minutos) }, dataType: decimal }
+  - name: Take
+    base: Unit
+    attributes:
+      - { key: { en: framing, pt: enquadramento }, label: { en: Framing, pt: Enquadramento }, dataType: enum,
+          options: { en: [extreme_wide, wide, medium, cowboy, close_up, extreme_close_up, detail, high_angle, low_angle, pov],
+                     pt: [plano_geral, plano_conjunto, plano_medio, plano_americano, close, super_close, detalhe, plongee, contra_plongee, pov] } }
+      - { key: { en: camera_move, pt: movimento }, label: { en: Camera movement, pt: Movimento de câmera }, dataType: enum,
+          options: { en: [static, pan, tilt, tracking, dolly, steadicam, drone, handheld], pt: [fixo, pan, tilt, travelling, dolly, steadicam, drone, na_mao] } }
+      - { key: { en: duration_s, pt: duracao_seg }, label: { en: Duration (s), pt: Duração (s) }, dataType: decimal }
+      - { key: { en: action, pt: acao }, label: { en: Action, pt: Ação }, dataType: text_long }
+      - { key: { en: audio, pt: audio }, label: { en: Audio / lines, pt: Áudio / falas }, dataType: text_long }
+      - { key: storyboard, label: { en: Storyboard frame, pt: Quadro do storyboard }, dataType: media }
+relTypes:
+  - { name: { en: WEARS, pt: VESTE }, base: POSSESSION, description: { en: Use anchors for wardrobe changes between scenes., pt: Use âncoras para trocas de figurino entre cenas. },
+      allowed: [{ from: "@Agent", to: { en: Wardrobe, pt: Figurino } }] }
+  - { name: { en: PLAYS_IN, pt: TOCA_EM }, base: PARTICIPATION, allowed: [{ from: { en: Score, pt: Trilha }, to: "@Unit" }] }
+directives:
+  - id: filme-mostrar
+    text: { en: "Write what the camera sees and the microphone hears; thoughts only show through action, line or image.",
+            pt: "Escreva o que a câmera vê e o microfone ouve; pensamentos só aparecem por ação, fala ou imagem." }
+    when: [context]
+    types: { en: [Scene, Take], pt: [Cena, Take] }
+    priority: 6
+  - id: filme-continuidade
+    text: { en: "Check continuity between consecutive scenes: wardrobe (WEARS), injuries, objects in hand and time of day.",
+            pt: "Confira continuidade entre cenas consecutivas: figurino (VESTE), ferimentos, objetos em mãos e período do dia." }
+    when: [context]
+    types: { en: [Scene], pt: [Cena] }
+    priority: 5

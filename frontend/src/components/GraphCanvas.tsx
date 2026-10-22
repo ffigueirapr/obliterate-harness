@@ -28,7 +28,7 @@ export interface GraphCanvasHandle {
   focus: (id: string) => void;
 }
 
-interface Props {
+export interface GraphCanvasProps {
   projectId: string;
   nodes: GNode[];
   edges: GEdge[];
@@ -67,7 +67,7 @@ function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#888';
 }
 
-export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(props, ref) {
+export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function GraphCanvas(props, ref) {
   const container = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const propsRef = useRef(props);

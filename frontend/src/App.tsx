@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api';
-import { BASE_COLOR, GraphCanvas, type GraphCanvasHandle, type SelectMode } from './components/GraphCanvas';
+import { BASE_COLOR, type GraphCanvasHandle, type SelectMode } from './components/GraphCanvas';
+import { DimToggle, GraphView, useGraphDim } from './components/GraphView';
 import { FilterPanel } from './components/FilterPanel';
 import { BulkEditor, EdgeEditor, IndirectInfo, NodeEditor } from './components/Inspector';
 import { CloneProjectDialog, NewEdgeDialog, NewNodeDialog, NewProjectDialog } from './components/Dialogs';
@@ -45,6 +46,7 @@ export function App() {
   const [tab, setTab] = useState<Tab>('all');
   const [filter, setFilter] = useState<ViewFilter>(EMPTY_FILTER);
   const [mode, setMode] = useState<SelectMode>('pan');
+  const [dim, setDim] = useGraphDim();
   const [selNodes, setSelNodes] = useState<string[]>([]);
   const [selEdges, setSelEdges] = useState<string[]>([]);
   const [selIndirect, setSelIndirect] = useState<IndirectLink | null>(null);
@@ -263,10 +265,11 @@ export function App() {
 
           <section className="canvas-wrap">
             <div className="toolbar">
+              <DimToggle dim={dim} setDim={setDim} />
               <div className="group" role="group" aria-label={t('Mode', 'Modo')}>
                 <button className={mode === 'pan' ? 'active' : ''} onClick={() => setMode('pan')} title={t('Dragging moves the view (Shift+drag selects an area; middle button always pans)', 'Arrastar move a tela (Shift+arrastar seleciona em área; botão do meio sempre move)')}>✋ {t('Pan', 'Mover')}</button>
-                <button className={mode === 'box' ? 'active' : ''} onClick={() => setMode('box')} title={t('Dragging selects a rectangle', 'Arrastar seleciona em retângulo')}>▭ {t('Box', 'Área')}</button>
-                <button className={mode === 'lasso' ? 'active' : ''} onClick={() => setMode('lasso')} title={t('Dragging draws a selection lasso', 'Arrastar desenha um laço de seleção')}>◌ {t('Lasso', 'Laço')}</button>
+                <button className={mode === 'box' ? 'active' : ''} onClick={() => { setMode('box'); setDim('2d'); }} title={t('Dragging selects a rectangle', 'Arrastar seleciona em retângulo')}>▭ {t('Box', 'Área')}</button>
+                <button className={mode === 'lasso' ? 'active' : ''} onClick={() => { setMode('lasso'); setDim('2d'); }} title={t('Dragging draws a selection lasso', 'Arrastar desenha um laço de seleção')}>◌ {t('Lasso', 'Laço')}</button>
               </div>
               <div className="group">
                 <button onClick={() => canvas.current?.fit()}>{t('Fit', 'Enquadrar')}</button>
@@ -308,7 +311,7 @@ export function App() {
             )}
 
             {projectId && view && (
-              <GraphCanvas ref={canvas} projectId={projectId} nodes={view.nodes} edges={view.edges} indirect={view.indirect}
+              <GraphView dim={dim} ref={canvas} projectId={projectId} nodes={view.nodes} edges={view.edges} indirect={view.indirect}
                 contextIds={view.contextIds ?? []} nodeTypes={schema.nodeTypes} mode={mode} onSelectionChange={onSelectionChange}
                 distance={focusState ? distance : undefined} centerId={focusState?.nodeId}
                 onNodeDoubleTap={(id) => startFocus(id, false)} />

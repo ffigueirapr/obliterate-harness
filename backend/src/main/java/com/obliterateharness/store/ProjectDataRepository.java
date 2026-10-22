@@ -19,6 +19,5 @@ public class ProjectDataRepository {
         jdbc.sql("DELETE FROM work_session WHERE project_id = :p").param("p", projectId).update();
         jdbc.sql("DELETE FROM audit_log WHERE project_id = :p").param("p", projectId).update();
         jdbc.sql("DELETE FROM changeset WHERE project_id = :p").param("p", projectId).update();
-        jdbc.sql("DELETE FROM unit_text_version WHERE project_id = :p").param("p", projectId).update();
     }
 }

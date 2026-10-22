@@ -10,9 +10,7 @@ import com.obliterateharness.graph.ChangeExecutor;
 import com.obliterateharness.graph.Graph;
 import com.obliterateharness.graph.JsonCodec;
 import com.obliterateharness.graph.SchemaStore;
-import com.obliterateharness.harness.HarnessLibrary.BeatDef;
 import com.obliterateharness.harness.HarnessLibrary.ProfileDef;
-import com.obliterateharness.harness.SystemNames.Field;
 import com.obliterateharness.i18n.I18n;
 import com.obliterateharness.i18n.Lang;
 import com.obliterateharness.service.ProjectService;
@@ -31,9 +29,9 @@ import static com.obliterateharness.graph.SchemaStore.params;
 import static com.obliterateharness.i18n.I18n.t;
 
 /**
- * Translates a project's schema to another language (backlog item 10): the types, attributes, enum options, relations,
- * object types, applied templates and beats that came from the profile packs are renamed to the target language, and
- * the nodes' data is migrated with them (attribute keys, enum values, mirrored facts keep their rigidity/revealAt).
+ * Translates a project's schema to another language: the types, attributes, enum options, relations and object types
+ * that came from the context's schema preset are renamed to the target language, and the nodes' data is migrated with
+ * them (attribute keys, enum values; mirrored facts keep their rigidity).
  * Types and relations the user created (not in the packs) are left as they are. Content (names, summaries, text) is
  * not translated: that is the LLM's job, through propose_changes.
  */
@@ -42,7 +40,7 @@ public class LocalizationService {
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     public record Report(String projectId, String from, String to, List<String> nodeTypes, List<String> relTypes, List<String> objectTypes,
-                         int nodesMigrated, int templatesTranslated, List<String> untouched, List<String> notes) {}
+                         int nodesMigrated, List<String> untouched, List<String> notes) {}
 
     private record TypePair(NodeTypeDef src, NodeTypeDef tgt) {}
 
@@ -69,11 +67,12 @@ public class LocalizationService {
         var project = projects.get(projectId);
         Lang source = Lang.parse(project.locale(), Lang.pt);
         if (source == target) {
-            return new Report(projectId, source.name(), target.name(), List.of(), List.of(), List.of(), 0, 0, List.of(),
+            return new Report(projectId, source.name(), target.name(), List.of(), List.of(), List.of(), 0, List.of(),
                     List.of(t("The project is already in this language.", "O projeto já está nesse idioma.")));
         }
-        String profile = project.profile() != null && library.profile(project.profile(), source).isPresent() ? project.profile() : "nucleo";
-        List<ProfileDef> srcChain = library.chain(profile, source), tgtChain = library.chain(profile, target);
+        boolean hasPreset = project.profile() != null && library.profile(project.profile(), source).isPresent();
+        List<ProfileDef> srcChain = hasPreset ? library.chain(project.profile(), source) : List.of();
+        List<ProfileDef> tgtChain = hasPreset ? library.chain(project.profile(), target) : List.of();
 
         // pack correspondences (same YAML, so lists line up by position)
         Map<String, TypePair> types = new LinkedHashMap<>();
@@ -197,7 +196,7 @@ public class LocalizationService {
                     if (e.getKey().equals(e.getValue())) continue;
                     tx.run("MATCH (n:N {id:$id})-[r:R {kind:'attr', attrKey:$old}]->() SET r.attrKey=$new, r.name=$new",
                             params("id", id, "old", e.getKey(), "new", e.getValue())).consume();
-                    // mirrored facts keep their rigidity / revealAt: rename them instead of recreating
+                    // mirrored facts keep their rigidity: rename them instead of recreating
                     tx.run("""
                             MATCH (f:Fact {originId:$id, originKind:'attr', originKey:$old})
                             SET f.originKey=$new, f.id='f_' + $id + '__' + $new
@@ -210,7 +209,6 @@ public class LocalizationService {
 
         // ---- relation types
         for (RelTypeDef rt : schema.relTypes(tx, projectId)) {
-            if (SchemaStore.CONTAINS.equals(rt.name())) continue;
             RelTypeDef tgt = rels.get(rt.name().toLowerCase());
             if (tgt == null && rt.systemKey() != null) tgt = relsBySystem.get(rt.systemKey());
             if (tgt == null) {
@@ -236,49 +234,6 @@ public class LocalizationService {
             relChanges.add(rt.name() + " → " + newName);
         }
 
-        // ---- applied templates and their beats
-        var fresh = schema.cache(tx, projectId);
-        NodeTypeDef tplType = fresh.nodeTypeBySystem(Reserved.TEMPLATE).orElse(null);
-        NodeTypeDef beatType = fresh.nodeTypeBySystem(Reserved.BEAT).orElse(null);
-        String beatOf = fresh.relTypeBySystem(Reserved.BEAT_OF).map(RelTypeDef::id).orElse("__none__");
-        int templates = 0;
-        if (tplType != null && beatType != null) {
-            var tpls = tx.run("MATCH (t:N {projectId:$p, typeId:$tt}) RETURN t.id AS id, t.attrs AS attrs", params("p", projectId, "tt", tplType.id())).list();
-            for (var r : tpls) {
-                String tid = r.get("id").asString();
-                Map<String, Object> ta = json.readMap(r.get("attrs").asString(null));
-                Object unitType = Field.UNIT_TYPE.read(ta);
-                if (unitType instanceof String u) ta.put(Field.UNIT_TYPE.keyFor(tplType), typeName.apply(u));
-                Object tplId = Field.TEMPLATE_ID.read(ta);
-                boolean builtin = tplId instanceof String s && library.isBuiltinTemplate(s);
-                if (builtin) {
-                    var src = I18n.with(source, () -> library.requireTemplate((String) tplId, source));
-                    var dst = I18n.with(target, () -> library.requireTemplate((String) tplId, target));
-                    if (dst.source() != null) ta.put(Field.SOURCE.keyFor(tplType), dst.source());
-                    tx.run("MATCH (t:N {id:$id}) SET t.name=$name, t.summary=$summary, t.attrs=$attrs, t.attrsText=$text",
-                            params("id", tid, "name", dst.name(), "summary", dst.description(), "attrs", json.write(ta), "text", attrsText(ta))).consume();
-                    var beats = tx.run("MATCH (b:N)-[:R {relTypeId:$bo}]->(:N {id:$t}) RETURN b.id AS id, b.attrs AS attrs", params("bo", beatOf, "t", tid)).list();
-                    for (var br : beats) {
-                        Map<String, Object> ba = json.readMap(br.get("attrs").asString(null));
-                        Object key = Field.BEAT_KEY.read(ba);
-                        int idx = -1;
-                        for (int i = 0; i < src.beats().size(); i++) if (Objects.equals(src.beats().get(i).key(), key)) idx = i;
-                        if (idx < 0 || idx >= dst.beats().size()) continue;
-                        BeatDef db = dst.beats().get(idx);
-                        ba.put(Field.BEAT_KEY.keyFor(beatType), db.key());
-                        if (db.function() != null) ba.put(Field.FUNCTION.keyFor(beatType), db.function());
-                        if (db.criteria() != null) ba.put(Field.CRITERIA.keyFor(beatType), db.criteria());
-                        tx.run("MATCH (b:N {id:$id}) SET b.name=$name, b.summary=$summary, b.attrs=$attrs, b.attrsText=$text",
-                                params("id", br.get("id").asString(), "name", db.name(), "summary", db.function(), "attrs", json.write(ba),
-                                        "text", attrsText(ba))).consume();
-                    }
-                    templates++;
-                } else {
-                    tx.run("MATCH (t:N {id:$id}) SET t.attrs=$attrs", params("id", tid, "attrs", json.write(ta))).consume();
-                }
-            }
-        }
-
         // ---- project directives that filter by type name
         var dirs = tx.run("MATCH (d:Directive {projectId:$p}) RETURN d.id AS id, d.types AS types", Map.of("p", projectId)).list();
         for (var r : dirs) {
@@ -295,7 +250,7 @@ public class LocalizationService {
         });
         notes.add(t("Content (names, summaries, texts) was not translated; ask the LLM to translate it with propose_changes if you want.",
                 "O conteúdo (nomes, resumos, textos) não foi traduzido; peça à LLM para traduzir com propose_changes se quiser."));
-        return new Report(projectId, source.name(), target.name(), nodeChanges, relChanges, objChanges, migrated, templates, untouched, notes);
+        return new Report(projectId, source.name(), target.name(), nodeChanges, relChanges, objChanges, migrated, untouched, notes);
     }
 
     // ------------------------------------------------------------------ helpers

@@ -73,7 +73,7 @@ public class GraphController {
             var ids = nodes.stream().map(Views.Node::id).toList();
             List<String> contextIds = List.of();
             if (Boolean.TRUE.equals(in.includeContext()) && !ids.isEmpty()) {
-                // direct neighbours outside the filter (e.g. characters and places used by the script), shown as reference
+                // direct neighbours outside the filter (e.g. the teams and documents a product links to), shown as reference
                 contextIds = tx.run("MATCH (a:N)-[:R]-(b:N {projectId:$p}) WHERE a.id IN $ids AND NOT b.id IN $ids RETURN DISTINCT b.id AS id LIMIT 500",
                         java.util.Map.of("p", pid, "ids", ids)).list(r -> r.get("id").asString());
                 nodes = new java.util.ArrayList<>(nodes);
@@ -104,27 +104,14 @@ public class GraphController {
     @GetMapping("/graph/focus")
     public Views.Focus focus(@PathVariable String pid, @RequestParam String nodeId, @RequestParam(defaultValue = "1") int hops,
                              @RequestParam(defaultValue = "false") boolean all, @RequestParam(required = false) List<String> relTypes,
-                             @RequestParam(required = false) Boolean includeStructure, @RequestParam(defaultValue = "2000") int limit) {
-        // default: direct focus includes structure (unit parent/children); indirect does not, so it won't reach the whole work via chapter ⊂ work
-        boolean structure = includeStructure != null ? includeStructure : (!all && hops == 1);
-        return graph.read(tx -> reader.focus(tx, pid, nodeId, all ? GraphReader.ALL_LEVELS : hops, relTypes, structure, limit, Detail.summary));
+                             @RequestParam(defaultValue = "2000") int limit) {
+        return graph.read(tx -> reader.focus(tx, pid, nodeId, all ? GraphReader.ALL_LEVELS : hops, relTypes, limit, Detail.summary));
     }
 
     @GetMapping("/graph/path")
     public Views.Subgraph path(@PathVariable String pid, @RequestParam String from, @RequestParam String to,
                                @RequestParam(defaultValue = "6") int maxHops) {
         return graph.read(tx -> reader.path(tx, pid, from, to, maxHops));
-    }
-
-    @GetMapping("/state-at")
-    public Views.StateAt stateAt(@PathVariable String pid, @RequestParam String entity, @RequestParam String unit) {
-        return graph.read(tx -> reader.stateAt(tx, pid, entity, unit));
-    }
-
-    @GetMapping("/outline")
-    public List<Views.OutlineItem> outline(@PathVariable String pid, @RequestParam(defaultValue = "10") int depth) {
-        projects.get(pid);
-        return graph.read(tx -> reader.outline(tx, pid, depth));
     }
 
     @GetMapping("/facts")

@@ -5,6 +5,7 @@ import com.obliterateharness.domain.Actor;
 import com.obliterateharness.domain.DomainException;
 import com.obliterateharness.domain.Ids;
 import com.obliterateharness.domain.NotFoundException;
+import com.obliterateharness.domain.Space;
 import com.obliterateharness.domain.Views;
 import com.obliterateharness.i18n.I18n;
 import com.obliterateharness.i18n.Lang;
@@ -35,7 +36,7 @@ import java.util.Set;
 import static com.obliterateharness.i18n.I18n.t;
 
 /**
- * Contexts: the domains the platform runs (stories and worlds, a company's brain, anything the user defines).
+ * Contexts: the domains the platform runs (a company's brain, a research base, anything the user or an LLM defines).
  * <p>
  * Built-in contexts come from YAML (harness/contexts) and point to profiles (harness/profiles) for their schema.
  * Contexts created by the user or by an LLM keep their definition in a <b>blueprint project</b>: a hidden project whose
@@ -46,26 +47,24 @@ import static com.obliterateharness.i18n.I18n.t;
 @Service
 public class ContextService {
     private static final Logger log = LoggerFactory.getLogger(ContextService.class);
-    private static final List<String> ALL_TABS = List.of("world", "characters", "story", "analysis", "templates");
-    private static final Set<String> SPACES = Set.copyOf(ALL_TABS);
+    private static final List<String> ALL_TABS = List.of("actors", "knowledge", "analysis");
 
     public record Preset(String id, String name, String description) {}
 
     /**
      * @param kind              builtin (read-only, from YAML) or custom (created by a person or an LLM)
      * @param blueprintProjectId custom contexts: the project that holds the definition; edit its schema to change the context
-     * @param narrative         whether the narrative tools (structure, hooks, manuscript) make sense in this context
      * @param tabs              graph spaces shown as tabs, in order
      * @param spaceLabels       how this context names each space
      */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     public record ContextView(String id, String name, String description, String icon, String color, String kind, String locale,
                               List<Preset> presets, String defaultPreset, String blueprintProjectId, String baseContext, String instructions,
-                              Map<String, String> spaceLabels, List<String> tabs, boolean narrative, int projectCount) {}
+                              Map<String, String> spaceLabels, List<String> tabs, int projectCount) {}
 
     /** Built-in context as written in YAML (after localization). */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    record BuiltinDef(String id, String name, String description, String icon, String color, Boolean narrative, List<String> presets,
+    record BuiltinDef(String id, String name, String description, String icon, String color, List<String> presets,
                       String defaultPreset, List<String> tabs, Map<String, String> spaceLabels, String instructions) {}
 
     private final Map<String, Object> builtinTrees = new LinkedHashMap<>();
@@ -111,7 +110,7 @@ public class ContextService {
 
     public List<ContextView> list(Lang lang) {
         Map<String, Integer> counts = new HashMap<>();
-        for (var p : projects.list()) counts.merge(p.context() == null ? ProjectService.NARRATIVE_CONTEXT : p.context(), 1, Integer::sum);
+        for (var p : projects.list()) if (p.context() != null) counts.merge(p.context(), 1, Integer::sum);
         List<ContextView> out = new ArrayList<>();
         for (String id : builtinTrees.keySet()) out.add(view(builtin(id, lang), lang, counts.getOrDefault(id, 0)));
         for (var row : repo.list()) out.add(view(row, lang, counts.getOrDefault(row.id(), 0)));
@@ -125,11 +124,11 @@ public class ContextService {
         return view(row(id), lang, count);
     }
 
-    /** The context a project belongs to (narrative for projects from before contexts). */
+    /** The context a project belongs to. */
     public Optional<ContextView> ofProject(Views.Project p, Lang lang) {
-        String id = p.context() == null ? ProjectService.NARRATIVE_CONTEXT : p.context();
+        if (p.context() == null) return Optional.empty();
         try {
-            return Optional.of(get(id, lang));
+            return Optional.of(get(p.context(), lang));
         } catch (NotFoundException e) {
             return Optional.empty();
         }
@@ -148,19 +147,33 @@ public class ContextService {
             }
         }
         return new ContextView(b.id(), b.name(), b.description(), b.icon(), b.color(), "builtin", null, presets, b.defaultPreset(), null, null,
-                b.instructions(), b.spaceLabels(), b.tabs() == null ? ALL_TABS : b.tabs(), Boolean.TRUE.equals(b.narrative()), count);
+                b.instructions(), normalizeLabels(b.spaceLabels()), normalizeTabs(b.tabs()), count);
     }
 
     private ContextView view(ContextRepository.Row r, Lang lang, int count) {
         return new ContextView(r.id(), r.name(), r.description(), r.icon(), r.color(), "custom", r.locale(), List.of(), null, r.blueprintProjectId(),
-                r.baseContext(), r.instructions(), r.spaceLabels(), r.tabs() == null ? ALL_TABS : r.tabs(), isNarrative(r.baseContext(), 0), count);
+                r.baseContext(), r.instructions(), normalizeLabels(r.spaceLabels()), normalizeTabs(r.tabs()), count);
     }
 
-    private boolean isNarrative(String base, int depth) {
-        if (base == null || depth > 10) return false;
-        BuiltinDef b = builtin(base, Lang.en);
-        if (b != null) return Boolean.TRUE.equals(b.narrative());
-        return repo.get(base).map(r -> isNarrative(r.baseContext(), depth + 1)).orElse(false);
+    /** Tabs in current space names (contexts saved before the rename used world/characters/...), without repeats. */
+    private static List<String> normalizeTabs(List<String> tabs) {
+        if (tabs == null || tabs.isEmpty()) return ALL_TABS;
+        var out = new java.util.LinkedHashSet<String>();
+        for (String t : tabs) {
+            Space s = Space.of(t);
+            if (s != null) out.add(s.name());
+        }
+        return out.isEmpty() ? ALL_TABS : List.copyOf(out);
+    }
+
+    private static Map<String, String> normalizeLabels(Map<String, String> labels) {
+        if (labels == null) return null;
+        Map<String, String> out = new LinkedHashMap<>();
+        labels.forEach((k, v) -> {
+            Space s = Space.of(k);
+            if (s != null) out.putIfAbsent(s.name(), v);
+        });
+        return out;
     }
 
     // ------------------------------------------------------------------ creating and editing contexts
@@ -169,7 +182,7 @@ public class ContextService {
      * Creates a context and its blueprint project.
      *
      * @param baseContext optional: a built-in or custom context to start from (its types, relations, rules and directives are copied)
-     * @param basePreset  optional: for a built-in base with several presets (e.g. narrative: livro, manga...), which one
+     * @param basePreset  optional: for a built-in base with several presets, which one
      */
     public ContextView create(String name, String description, String icon, String color, String locale, String baseContext, String basePreset,
                               String instructions, Actor actor) {
@@ -225,10 +238,12 @@ public class ContextService {
         var r = row(id);
         if (tabs != null) {
             if (tabs.isEmpty()) throw new DomainException(t("Keep at least one tab", "Mantenha pelo menos uma aba"));
-            for (String s : tabs) if (!SPACES.contains(s)) throw new DomainException(t("Unknown tab '", "Aba desconhecida '") + s + "'. " + ALL_TABS);
+            for (String s : tabs) if (Space.of(s) == null) throw new DomainException(t("Unknown tab '", "Aba desconhecida '") + s + "'. " + ALL_TABS);
+            tabs = normalizeTabs(tabs);
         }
         if (spaceLabels != null) {
-            for (String s : spaceLabels.keySet()) if (!SPACES.contains(s)) throw new DomainException(t("Unknown space '", "Espaço desconhecido '") + s + "'. " + ALL_TABS);
+            for (String s : spaceLabels.keySet()) if (Space.of(s) == null) throw new DomainException(t("Unknown space '", "Espaço desconhecido '") + s + "'. " + ALL_TABS);
+            spaceLabels = normalizeLabels(spaceLabels);
         }
         repo.update(id, blankToNull(name), description, blankToNull(icon), blankToNull(color), instructions, spaceLabels, tabs);
         if (name != null && !name.isBlank()) projects.update(r.blueprintProjectId(), name.trim() + t(" · definition", " · definição"), null, null, null);

@@ -38,11 +38,8 @@ public class ProjectService {
             tx.run("""
                     CREATE (p:Project {id:$id, name:$name, description:$description, profile:$profile,
                                        requireReviewForLlm:$review, createdAt:$now, locale:$locale})
-                    CREATE (t:RelType {id:$rt, projectId:$id, name:'CONTAINS', nameLower:'contains', base:'STRUCTURE',
-                                       description:'Narrative structure (parent contains child). System relation.',
-                                       symmetric:false, temporal:false, allowed:'[{"from":"@Unit","to":"@Unit"}]'})
                     """, params("id", id, "name", name.trim(), "description", description, "profile", profile,
-                    "review", requireReviewForLlm != null && requireReviewForLlm, "now", now, "rt", "rt_contains_" + id, "locale", lang)).consume();
+                    "review", requireReviewForLlm != null && requireReviewForLlm, "now", now, "locale", lang)).consume();
             return null;
         });
         return get(id);
@@ -78,12 +75,10 @@ public class ProjectService {
                 """, Map.of("all", includeBlueprints)).list(r -> toProject(r.get("p"))));
     }
 
-    /** Projects of a context. Projects without a context belong to the narrative context. */
+    /** Projects of a context. */
     public List<Views.Project> inContext(String contextId) {
-        return list().stream().filter(p -> contextId.equals(p.context() == null ? NARRATIVE_CONTEXT : p.context())).toList();
+        return list().stream().filter(p -> contextId.equals(p.context())).toList();
     }
-
-    public static final String NARRATIVE_CONTEXT = "narrative";
 
     /** Ties a project to a context; blueprint marks the context's definition project. */
     public void setContext(String id, String contextId, boolean blueprint) {
@@ -94,27 +89,15 @@ public class ProjectService {
         });
     }
 
-    public Views.Project update(String id, String name, String description, String profile, Boolean requireReviewForLlm) {
-        return update(id, name, description, profile, requireReviewForLlm, null, null);
-    }
-
     /** Updates settings. Locale is not changed here: use localization, which also converts the schema. */
-    public Views.Project update(String id, String name, String description, String profile, Boolean requireReviewForLlm,
-                                String styleSample, String styleReference) {
+    public Views.Project update(String id, String name, String description, String profile, Boolean requireReviewForLlm) {
         get(id);
-        if (styleReference != null && !styleReference.isBlank()) {
-            if (styleReference.equals(id)) throw new DomainException(t("A project cannot be its own style reference", "Um projeto não pode ser a própria referência de estilo"));
-            get(styleReference);
-        }
         graph.write(tx -> {
             tx.run("""
                     MATCH (p:Project {id:$id})
                     SET p.name = coalesce($name, p.name), p.description = coalesce($description, p.description),
-                        p.profile = coalesce($profile, p.profile), p.requireReviewForLlm = coalesce($review, p.requireReviewForLlm),
-                        p.styleSample = CASE WHEN $style IS NULL THEN p.styleSample WHEN $style = '' THEN null ELSE $style END,
-                        p.styleReference = CASE WHEN $ref IS NULL THEN p.styleReference WHEN $ref = '' THEN null ELSE $ref END
-                    """, params("id", id, "name", name, "description", description, "profile", profile, "review", requireReviewForLlm,
-                    "style", styleSample, "ref", styleReference)).consume();
+                        p.profile = coalesce($profile, p.profile), p.requireReviewForLlm = coalesce($review, p.requireReviewForLlm)
+                    """, params("id", id, "name", name, "description", description, "profile", profile, "review", requireReviewForLlm)).consume();
             return null;
         });
         return get(id);
@@ -161,7 +144,6 @@ public class ProjectService {
     private Views.Project toProject(org.neo4j.driver.Value p) {
         return new Views.Project(p.get("id").asString(), p.get("name").asString(), p.get("description").asString(null),
                 p.get("profile").asString(null), p.get("requireReviewForLlm").asBoolean(false), localTime(p.get("createdAt").asString(null)),
-                p.get("locale").asString(null), p.get("styleSample").asString(null), p.get("styleReference").asString(null),
-                p.get("context").asString(null), p.get("blueprint").asBoolean(false) ? Boolean.TRUE : null);
+                p.get("locale").asString(null), p.get("context").asString(null), p.get("blueprint").asBoolean(false) ? Boolean.TRUE : null);
     }
 }

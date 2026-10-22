@@ -50,6 +50,8 @@ type Graph = ForceGraph3DInstance<N3 & object, L3 & object>;
 
 // acima disso só mostra rótulo de quem está em destaque (selecionado, vizinho, centro do foco, sob o mouse)
 const LABEL_LIMIT = 400;
+// acima disso só desenha setas nas ligações em destaque: cada seta é um objeto (draw call) a mais por quadro
+const ARROW_LIMIT = 1000;
 const R = 4;
 
 const GEOMETRY: Record<string, Geometry> = {
@@ -219,7 +221,14 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
         }
       });
       const selL = selLink.current;
+      const fewLinks = linksRef.current.length <= ARROW_LIMIT;
       graph
+        .linkDirectionalArrowLength((l: L3) => {
+          if (l.indirect) return 0;
+          if (fewLinks) return 3.5;
+          const s = endId(l.source), tg = endId(l.target);
+          return anyLit && (selNodes.current.has(s) || selNodes.current.has(tg) || l === selL) ? 3.5 : 0;
+        })
         .linkColor((l: L3) => {
           const s = endId(l.source), tg = endId(l.target);
           const on = !anyLit || (lit.has(s) && lit.has(tg) && (selNodes.current.has(s) || selNodes.current.has(tg) || l === selL));
@@ -274,7 +283,6 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
       .linkLabel((l: L3) => escapeHtml(l.label || l.kind))
       .linkWidth(0)
       .linkOpacity(0.6)
-      .linkDirectionalArrowLength((l: L3) => (l.indirect ? 0 : 3.5))
       .linkDirectionalArrowRelPos(1)
       .linkHoverPrecision(2)
       .linkThreeObject((l: L3) => {
@@ -294,6 +302,8 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
         return true;
       })
       .cooldownTime(8000)
+      // o three-forcegraph usa 0 (só para pelo tempo); 0,001 é o padrão do d3: para quando o layout converge
+      .d3AlphaMin(0.001)
       .onNodeHover((n: N3 | null) => {
         el.style.cursor = n ? 'pointer' : '';
         const before = hovered.current;
@@ -372,9 +382,15 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
     // gravidade fraca: nós soltos e componentes isolados não se afastam a ponto de o "Enquadrar" virar um ponto
     graph.d3Force('gravity', forceRadial<N3>(0).strength((n) => (degree.current.get(n.id) ? 0.012 : 0.1)) as never);
 
+    let refit: ReturnType<typeof setTimeout> | undefined;
     const fitSize = () => {
       if (el.clientWidth && el.clientHeight) graph.width(el.clientWidth).height(el.clientHeight);
       wake();
+      // painéis/janela mudaram de tamanho: reenquadra se a câmera ainda é a do enquadramento automático
+      clearTimeout(refit);
+      refit = setTimeout(() => {
+        if (!userMoved.current && !needsFit.current && nodesRef.current.size > 0) { wake(800); graph.zoomToFit(300, 40); }
+      }, 200);
     };
     // o 3d-force-graph nasce do tamanho da janela; acompanha o container (painéis, janela)
     fitSize();
@@ -384,6 +400,7 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
 
     return () => {
       clearTimeout(idle);
+      clearTimeout(refit);
       cancelAnimationFrame(restylePending);
       ro.disconnect();
       for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const) el.removeEventListener(ev, onInput);
@@ -491,6 +508,10 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
         });
       }
       graph.cooldownTicks(allRestored ? 2 : Infinity);
+      // grafo grande sem posições: calcula o layout antes de desenhar (~300 passos do d3 custam bem menos
+      // que desenhar e atualizar milhares de objetos a cada passo)
+      const big = fresh.length > 500;
+      graph.warmupTicks(big ? 300 : 0).cooldownTime(8000);
       graph.graphData({ nodes: [...next.values()], links });
       wakeRef.current();
     }

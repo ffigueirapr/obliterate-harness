@@ -13,11 +13,11 @@ export type SelectMode = 'pan' | 'box' | 'lasso';
 
 export const BASE_COLOR: Record<string, string> = {
   Agent: '#e8590c', Place: '#2f9e44', Object: '#1971c2', Ability: '#9c36b5', Concept: '#0c8599',
-  Event: '#c2255c', Unit: '#5c636a', Device: '#f08c00', Media: '#74b816', Note: '#868e96',
+  Event: '#c2255c', Media: '#74b816', Note: '#868e96',
 };
 const BASE_SHAPE: Record<string, string> = {
   Agent: 'ellipse', Place: 'round-hexagon', Object: 'round-diamond', Ability: 'star', Concept: 'round-octagon',
-  Event: 'round-triangle', Unit: 'round-rectangle', Device: 'vee', Media: 'round-tag', Note: 'rectangle',
+  Event: 'round-triangle', Media: 'round-tag', Note: 'rectangle',
 };
 
 export interface GraphCanvasHandle {
@@ -98,7 +98,6 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
             'text-background-padding': '1px', 'border-width': 0,
           },
         },
-        { selector: 'node[base = "Unit"]', style: { width: 44, height: 26 } },
         { selector: 'node[crit = "critical"]', style: { 'border-width': 3, 'border-color': warn } },
         { selector: 'node[crit = "foundational"]', style: { 'border-width': 4, 'border-color': gold, 'border-style': 'double' } },
         { selector: 'node.context', style: { opacity: 0.55, 'border-width': 2, 'border-style': 'dashed', 'border-color': edge } },
@@ -113,7 +112,6 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
             'text-background-color': canvas, 'text-background-opacity': 0.85, 'text-background-padding': '1px',
           },
         },
-        { selector: 'edge[kind = "structure"]', style: { width: 1, 'line-style': 'solid', label: '', opacity: 0.6 } },
         { selector: 'edge[kind = "attr"]', style: { 'line-style': 'dotted' } },
         { selector: 'edge[crit = "critical"]', style: { 'line-color': warn, 'target-arrow-color': warn, width: 2.4 } },
         { selector: 'edge[crit = "foundational"]', style: { 'line-color': gold, 'target-arrow-color': gold, width: 3 } },
@@ -224,7 +222,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     const nodeIds = new Set(props.nodes.map((n) => n.id));
     for (const e of props.edges) {
       if (!nodeIds.has(e.from) || !nodeIds.has(e.to)) continue;
-      els.push({ group: 'edges', data: { id: e.id, source: e.from, target: e.to, label: e.kind === 'structure' ? '' : e.relType, kind: e.kind, crit: e.criticality ?? 'normal' } });
+      els.push({ group: 'edges', data: { id: e.id, source: e.from, target: e.to, label: e.relType, kind: e.kind, crit: e.criticality ?? 'normal' } });
     }
     for (const l of props.indirect) {
       els.push({

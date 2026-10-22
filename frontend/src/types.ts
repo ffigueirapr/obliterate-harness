@@ -2,24 +2,22 @@ import { t } from './i18n';
 
 export type Criticality = 'normal' | 'critical' | 'foundational';
 
-export const BASES = ['Agent', 'Place', 'Object', 'Ability', 'Concept', 'Event', 'Unit', 'Device', 'Media', 'Note'] as const;
-export const REL_BASES = ['STRUCTURE', 'PARTICIPATION', 'SOCIAL', 'POSSESSION', 'SPATIAL', 'CAUSAL', 'KNOWLEDGE', 'ORIGIN', 'SETUP_PAYOFF', 'REFERENCE'] as const;
-export const DATA_TYPES = ['int', 'decimal', 'bool', 'string_short', 'text_long', 'enum', 'story_time', 'json', 'node_ref', 'list', 'composite', 'media'] as const;
-export const SPACES = ['world', 'characters', 'story', 'analysis', 'templates'] as const;
+export const BASES = ['Agent', 'Place', 'Object', 'Ability', 'Concept', 'Event', 'Media', 'Note'] as const;
+export const REL_BASES = ['PARTICIPATION', 'SOCIAL', 'POSSESSION', 'SPATIAL', 'CAUSAL', 'KNOWLEDGE', 'ORIGIN', 'REFERENCE'] as const;
+export const DATA_TYPES = ['int', 'decimal', 'bool', 'string_short', 'text_long', 'enum', 'json', 'node_ref', 'list', 'composite', 'media'] as const;
+export const SPACES = ['actors', 'knowledge', 'analysis'] as const;
 
 const BASE_LABELS: Record<string, [string, string]> = {
   Agent: ['Agent', 'Agente'], Place: ['Place', 'Lugar'], Object: ['Object', 'Objeto'], Ability: ['Ability', 'Habilidade'],
-  Concept: ['Concept', 'Conceito'], Event: ['Event', 'Evento'], Unit: ['Narrative unit', 'Unidade narrativa'],
-  Device: ['Narrative device', 'Recurso narrativo'], Media: ['Media', 'Mídia'], Note: ['Note', 'Nota'],
+  Concept: ['Concept', 'Conceito'], Event: ['Event', 'Evento'], Media: ['Media', 'Mídia'], Note: ['Note', 'Nota'],
 };
 const SPACE_LABELS: Record<string, [string, string]> = {
-  world: ['World', 'Mundo'], characters: ['Characters', 'Personagens'], story: ['Story', 'Roteiro'],
-  analysis: ['Analysis', 'Análise'], templates: ['Templates', 'Templates'],
+  actors: ['Actors', 'Atores'], knowledge: ['Knowledge', 'Conhecimento'], analysis: ['Analysis', 'Análise'],
 };
 export const baseLabel = (b?: string) => (b && BASE_LABELS[b] ? t(...BASE_LABELS[b]) : b ?? '');
 export const spaceLabel = (s?: string) => (s && SPACE_LABELS[s] ? t(...SPACE_LABELS[s]) : s ?? '');
 export const critLabel = (c?: string) => (c === 'foundational' ? t('foundational', 'fundacional') : c === 'critical' ? t('critical', 'crítico') : 'normal');
-export const rigidityLabel = (r?: string) => (r === 'law' ? t('law', 'lei') : r === 'norm' ? t('norm', 'norma') : t('flavor', 'ambientação'));
+export const rigidityLabel = (r?: string) => (r === 'law' ? t('law', 'lei') : r === 'norm' ? t('norm', 'norma') : t('flavor', 'informativo'));
 
 export interface Project {
   id: string;
@@ -30,9 +28,7 @@ export interface Project {
   createdAt?: string;
   /** language of the project's schema and content */
   locale?: 'en' | 'pt';
-  styleSample?: string;
-  styleReference?: string;
-  /** context (domain) the project belongs to; absent = narrative */
+  /** context (domain) the project belongs to */
   context?: string;
   /** true for a context's definition project */
   blueprint?: boolean;
@@ -56,7 +52,6 @@ export interface ContextView {
   instructions?: string;
   spaceLabels?: Record<string, string>;
   tabs: string[];
-  narrative: boolean;
   projectCount: number;
 }
 
@@ -72,7 +67,7 @@ export interface AttrDef {
   objectType?: string;
   maxLength?: number;
   defaultCriticality?: string;
-  /** what the engine uses it for: manuscript, word_count, location, secret */
+  /** what the engine uses it for: link (URL of the source document) */
   role?: string;
 }
 
@@ -126,21 +121,17 @@ export interface GNode {
   attributes?: Record<string, unknown>;
   attributeCriticality?: Record<string, string>;
   refs?: Record<string, string[]>;
-  parent?: string;
-  order?: number;
-  sortKey?: string;
   version?: number;
   createdBy?: string;
   updatedBy?: string;
   updatedAt?: string;
-  wordCount?: number;
 }
 
 export interface GEdge {
   id: string;
   relType: string;
   base?: string;
-  kind: 'rel' | 'attr' | 'structure';
+  kind: 'rel' | 'attr';
   from: string;
   fromName?: string;
   to: string;
@@ -148,8 +139,6 @@ export interface GEdge {
   description?: string;
   criticality?: Criticality;
   tags?: string[];
-  fromUnit?: string;
-  toUnit?: string;
   version?: number;
 }
 
@@ -161,8 +150,6 @@ export interface Fact {
   origin: string;
   about?: { id: string; name: string }[];
   version?: number;
-  /** secret until this unit */
-  revealAt?: { id: string; name: string };
 }
 
 export interface IndirectLink {
@@ -186,16 +173,6 @@ export interface NodeDetail {
   node: GNode;
   edges: GEdge[];
   facts: Fact[];
-}
-
-export interface OutlineItem {
-  id: string;
-  type: string;
-  name: string;
-  summary?: string;
-  status?: string;
-  wordCount?: number;
-  children?: OutlineItem[];
 }
 
 export type Operation = Record<string, unknown> & { op: string };
@@ -240,71 +217,6 @@ export interface ProfileSummary {
   id: string;
   name: string;
   description?: string;
-  units?: string[];
-  suggestedTemplates?: string[];
-}
-
-export interface TemplateSummary {
-  id: string;
-  name: string;
-  description?: string;
-  scope?: 'obra' | 'unidade';
-  media?: string[];
-  beats: number;
-  custom?: boolean;
-  source?: string;
-}
-
-export interface AppliedTemplate {
-  id: string;
-  name: string;
-  templateId?: string;
-  unitType?: string;
-  plannedUnits?: number;
-  scopeUnitId?: string;
-  beats: number;
-}
-
-export interface BeatStatus {
-  beatId: string;
-  key?: string;
-  name: string;
-  expected: number;
-  function?: string;
-  criteria?: string;
-  required: boolean;
-  units?: { id: string; name: string; position: number }[];
-  status: 'ok' | 'off_position' | 'missing' | 'optional_missing' | 'future';
-  note?: string;
-}
-
-export interface Coverage {
-  templateNodeId: string;
-  templateName: string;
-  unitType: string;
-  scopeUnitId?: string;
-  unitsWritten: number;
-  unitsPlanned: number;
-  progress: number;
-  beats?: BeatStatus[];
-  unitsWithoutBeat?: { id: string; name: string }[];
-  summary?: string[];
-}
-
-export interface Thread {
-  id: string;
-  name: string;
-  type: string;
-  kind?: string;
-  status: string;
-  summary?: string;
-  plantedIn?: { id: string; name: string }[];
-  paidIn?: { id: string; name: string }[];
-  about?: { id: string; name: string }[];
-  unitsSincePlanted?: number;
-  /** a plain node planted as a clue (not a Hook) */
-  clue?: boolean;
-  warning?: string;
 }
 
 export interface Directive {
@@ -316,26 +228,6 @@ export interface Directive {
   priority: number;
   enabled: boolean;
   source: string;
-}
-
-export interface WritingContext {
-  unit: GNode;
-  path?: { id: string; name: string; type?: string; summary?: string }[];
-  previous?: { id: string; name: string; summary?: string }[];
-  next?: { id: string; name: string; summary?: string };
-  beatsHere?: BeatStatus[];
-  beatsExpectedHere?: BeatStatus[];
-  previousTail?: { unitId: string; unitName: string; paragraphs: string[] };
-  parts?: { id: string; type: string; name: string; summary?: string; attributes?: Record<string, unknown>; wordCount?: number }[];
-  inPlay?: { id: string; type: string; name: string; summary?: string; criticality?: string; state?: string[] }[];
-  facts?: Fact[];
-  secrets?: Secret[];
-  revealedHere?: Secret[];
-  style?: { source: string; text: string };
-  openThreads?: Thread[];
-  guidance?: string[];
-  estimatedTokens: number;
-  trimmed?: string[];
 }
 
 export interface FocusResult {
@@ -352,7 +244,6 @@ export interface FocusState {
   nodeId: string;
   name: string;
   all: boolean;
-  includeStructure: boolean;
 }
 
 export interface ViewFilter {
@@ -364,32 +255,6 @@ export interface ViewFilter {
   includeIndirect: boolean;
   maxHops: number;
   relTypes: string[];
-}
-
-export interface Secret {
-  kind: string;
-  text: string;
-  about?: { id: string; name: string }[];
-  revealAt?: { id: string; name: string };
-}
-
-export interface TextRead { unitId: string; unitName: string; attribute: string; textVersion?: number; words: number; text?: string }
-export interface TextWrite { unitId: string; attribute: string; nodeVersion: number; textVersion: number; words: number; characters: number }
-export interface TextVersion { version: number; attrKey: string; words: number; actor: string; note?: string; createdAt: string }
-export interface TextDiff { added: number; removed: number; lines: { op: '+' | '-' | ' ' | string; text: string }[] }
-
-export interface Validation {
-  unit: { id: string; name: string };
-  words: number;
-  mentionedNotInCast?: { id: string; name: string }[];
-  castNotMentioned?: { id: string; name: string }[];
-  possibleNewEntities?: string[];
-  warnings?: string[];
-  stateToCheck?: string[];
-  rulesToCheck?: Fact[];
-  secretsToCheck?: Secret[];
-  directives?: string[];
-  instructions?: string[];
 }
 
 export interface CloneResult {
@@ -407,23 +272,8 @@ export interface LocalizeReport {
   nodeTypes?: string[];
   relTypes?: string[];
   nodesMigrated: number;
-  templatesTranslated: number;
   untouched?: string[];
   notes?: string[];
-}
-
-export interface BeatDef { key?: string; name: string; position: number; function?: string; criteria?: string; required?: boolean }
-
-export interface TemplateDef {
-  id?: string;
-  name: string;
-  description?: string;
-  scope?: 'obra' | 'unidade';
-  media?: string[];
-  source?: string;
-  beats: BeatDef[];
-  custom?: boolean;
-  locale?: string;
 }
 
 /** Result of POST /api/import (obliterate-archive). */

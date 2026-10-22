@@ -1,7 +1,10 @@
-// Teste de fumaça ponta a ponta contra a API rodando (node scripts/smoke.mjs [baseUrl]).
-// Cria um projeto descartável, monta schema, nós, estrutura narrativa, arestas temporais e fatos,
-// e confere as consultas principais. Também exercita o MCP (initialize, tools/list, tools/call).
-const BASE = process.argv[2] ?? 'http://127.0.0.1:8180';
+// Teste de fumaça ponta a ponta contra a API rodando (node scripts/smoke.mjs [baseUrl] [--manter]).
+// Cria um contexto em branco e um projeto nele, monta schema, nós, arestas e fatos, confere as consultas principais,
+// as travas (pares permitidos, tipos, versões, lote atômico, dryRun, best_effort), diretivas, clone com tradução,
+// e exercita o MCP (initialize, tools/list, tools/call, resources, prompts). Também confere que a camada narrativa
+// antiga não existe mais. Apaga tudo no fim (a menos que --manter).
+const BASE = process.argv.find((a) => a.startsWith('http')) ?? 'http://127.0.0.1:8180';
+const KEEP = process.argv.includes('--manter');
 let failures = 0;
 
 function check(cond, msg) {
@@ -25,96 +28,129 @@ async function api(method, path, body, expectStatus) {
   return data;
 }
 
-const ops = (pid, title, operations) => api('POST', `/api/projects/${pid}/changesets`, { title, operations });
+const ops = (pid, title, operations, mode) => api('POST', `/api/projects/${pid}/changesets`, { title, operations, mode });
+const stamp = new Date().toISOString();
+const created = { projects: [], contexts: [] };
 
-console.log('# REST');
-const project = await api('POST', '/api/projects', { name: 'Smoke ' + new Date().toISOString(), profile: 'personalizado', locale: 'pt' }, 201); // sem pacote de perfil: o teste monta o próprio schema
+console.log('# Contexto e projeto');
+const ctx = await api('POST', '/api/contexts', { name: 'Smoke ' + stamp, description: 'contexto descartável', locale: 'pt' }, 201);
+created.contexts.push(ctx);
+check(ctx.id.startsWith('ctx_') && ctx.blueprintProjectId && ctx.kind === 'custom', 'contexto em branco criado ' + ctx.id);
+check(JSON.stringify(ctx.tabs) === JSON.stringify(['actors', 'knowledge', 'analysis']), 'abas com os espaços novos (actors, knowledge, analysis)');
+const noCtx = await api('POST', '/api/projects', { name: 'Sem contexto', locale: 'pt' }, 400);
+check(noCtx.detail.includes('context'), 'projeto sem contexto é recusado');
+const project = await api('POST', `/api/contexts/${ctx.id}/projects`, { name: 'Smoke ' + stamp, locale: 'pt' }, 201);
+created.projects.push(project);
 const pid = project.id;
-check(pid.startsWith('p_'), 'projeto criado ' + pid);
+check(pid.startsWith('p_') && project.context === ctx.id, 'projeto criado no contexto ' + pid);
 
+console.log('# Schema e dados');
 const schema = await ops(pid, 'schema', [
-  { op: 'upsert_object_type', definition: { name: 'Ficha', fields: [{ key: 'forca', dataType: 'int', required: true }, { key: 'agilidade', dataType: 'int' }] } },
-  { op: 'upsert_node_type', definition: { name: 'Região', base: 'Place', attributes: [{ key: 'clima', dataType: 'enum', options: ['deserto', 'costa', 'montanha'] }] } },
-  { op: 'upsert_node_type', definition: { name: 'Personagem', base: 'Agent', attributes: [
-    { key: 'idade', dataType: 'int' },
-    { key: 'origem', dataType: 'node_ref', refType: 'Região' },
-    { key: 'poder', dataType: 'string_short' },
-    { key: 'ficha', dataType: 'composite', objectType: 'Ficha' },
+  { op: 'upsert_object_type', definition: { name: 'Endereço', fields: [{ key: 'rua', dataType: 'string_short', required: true }, { key: 'cidade', dataType: 'string_short' }] } },
+  { op: 'upsert_node_type', definition: { name: 'Área', base: 'Agent', attributes: [{ key: 'canal', dataType: 'string_short' }] } },
+  { op: 'upsert_node_type', definition: { name: 'Sistema', base: 'Object', attributes: [
+    { key: 'status', dataType: 'enum', options: ['planejado', 'ativo', 'desligado'] },
+    { key: 'dono', dataType: 'node_ref', refType: 'Área' },
+    { key: 'limite', dataType: 'string_short' },
+    { key: 'sede', dataType: 'composite', objectType: 'Endereço' },
     { key: 'apelidos', dataType: 'list', itemType: 'string_short' },
+    { key: 'versao', dataType: 'int' },
+    { key: 'docs', dataType: 'string_short', role: 'link' },
   ] } },
-  { op: 'upsert_node_type', definition: { name: 'Item', base: 'Object' } },
-  { op: 'upsert_node_type', definition: { name: 'Arco', base: 'Unit' } },
-  { op: 'upsert_node_type', definition: { name: 'Capítulo', base: 'Unit', attributes: [{ key: 'status', dataType: 'enum', options: ['rascunho', 'pronto'] }] } },
-  { op: 'upsert_rel_type', definition: { name: 'ODEIA', base: 'SOCIAL', allowed: [{ from: '@Agent', to: '@Agent' }] } },
-  { op: 'upsert_rel_type', definition: { name: 'POSSUI', base: 'POSSESSION', allowed: [{ from: 'Personagem', to: 'Item' }] } },
-  { op: 'upsert_rel_type', definition: { name: 'APARECE_EM', base: 'PARTICIPATION', allowed: [{ from: '*', to: '@Unit' }] } },
+  { op: 'upsert_node_type', definition: { name: 'Documento', base: 'Media' } },
+  { op: 'upsert_rel_type', definition: { name: 'DEPENDE_DE', base: 'CAUSAL', allowed: [{ from: 'Sistema', to: 'Sistema' }] } },
+  { op: 'upsert_rel_type', definition: { name: 'ATENDE', base: 'SOCIAL', allowed: [{ from: '@Agent', to: 'Sistema' }] } },
+  { op: 'upsert_rel_type', definition: { name: 'DOCUMENTADO_EM', base: 'REFERENCE', allowed: [{ from: '*', to: 'Documento' }] } },
 ]);
-check(schema.status === 'applied' && schema.changes.length === 9, 'schema aplicado (9 ops)');
+check(schema.status === 'applied' && schema.changes.length === 7, 'schema aplicado (7 ops)');
 
-const world = await ops(pid, 'mundo e personagens', [
-  { op: 'create_node', ref: '$deserto', type: 'Região', name: 'Mar de Areia', attributes: { clima: 'deserto' } },
-  { op: 'create_node', ref: '$arco1', type: 'Arco', name: 'Arco 1' },
-  { op: 'create_node', ref: '$c1', type: 'Capítulo', name: 'Capítulo 1', parent: '$arco1', attributes: { status: 'pronto' } },
-  { op: 'create_node', ref: '$c2', type: 'Capítulo', name: 'Capítulo 2', parent: '$arco1' },
-  { op: 'create_node', ref: '$c3', type: 'Capítulo', name: 'Capítulo 3', parent: '$arco1' },
-  { op: 'create_node', ref: '$ana', type: 'Personagem', name: 'Ana', summary: 'Ladra do deserto', tags: ['Protagonista'],
-    attributes: { idade: 27, origem: '$deserto', poder: 'Some nas sombras, só à noite', ficha: { forca: 3, agilidade: 9 }, apelidos: ['Sombra'] },
-    attributeCriticality: { poder: 'foundational' } },
-  { op: 'create_node', ref: '$bruno', type: 'Personagem', name: 'Bruno', summary: 'Irmão de Ana' },
-  { op: 'create_node', ref: '$chave', type: 'Item', name: 'Chave de Obsidiana' },
-  { op: 'create_edge', relType: 'ODEIA', from: '$ana', to: '$bruno', criticality: 'critical', description: 'culpa o irmão pela morte do pai', fromUnit: '$c1' },
-  { op: 'create_edge', ref: '$posse', relType: 'POSSUI', from: '$ana', to: '$chave', fromUnit: '$c1', toUnit: '$c2' },
-  { op: 'create_edge', relType: 'APARECE_EM', from: '$ana', to: '$c3' },
-  { op: 'create_fact', text: 'Magia não funciona dentro de templos', rigidity: 'law', criticality: 'foundational', about: ['$deserto'] },
+const data = await ops(pid, 'dados', [
+  { op: 'create_node', ref: '$fin', type: 'Área', name: 'Financeiro', space: 'characters' },
+  { op: 'create_node', ref: '$billing', type: 'Sistema', name: 'Billing', summary: 'Cobra os clientes todo mês', tags: ['Core'],
+    attributes: { status: 'ativo', dono: '$fin', limite: 'Fecha o mês no dia 3', sede: { rua: 'Av. Paulista', cidade: 'SP' }, apelidos: ['BL'], versao: 4,
+      docs: 'https://exemplo.com/billing' },
+    attributeCriticality: { limite: 'foundational' } },
+  { op: 'create_node', ref: '$ledger', type: 'Sistema', name: 'Ledger', summary: 'Livro razão' },
+  { op: 'create_node', ref: '$doc', type: 'Documento', name: 'Política de cobrança', space: 'world' },
+  { op: 'create_edge', relType: 'DEPENDE_DE', from: '$billing', to: '$ledger', criticality: 'critical', description: 'precisa do razão para fechar o mês' },
+  { op: 'create_edge', relType: 'ATENDE', from: '$fin', to: '$billing' },
+  { op: 'create_edge', relType: 'DOCUMENTADO_EM', from: '$billing', to: '$doc' },
+  { op: 'create_fact', text: 'Estornos acima de 5 mil exigem duas aprovações', rigidity: 'law', criticality: 'foundational', about: ['$billing'] },
 ]);
-check(world.status === 'applied', 'mundo aplicado');
-const id = world.ids;
+check(data.status === 'applied', 'dados aplicados');
+const id = data.ids;
 
-const ana = await api('GET', `/api/projects/${pid}/nodes/${id.$ana}`);
-check(ana.node.refs.origem[0] === id.$deserto, 'node_ref origem virou aresta');
-check(ana.node.tags[0] === 'protagonista', 'tags normalizadas');
-check(ana.facts.some(f => f.criticality === 'foundational' && f.text.includes('só à noite')), 'atributo foundational espelhado em Fact');
-check(ana.facts.some(f => f.text.includes('ODEIA')), 'aresta critical espelhada em Fact');
+const billing = await api('GET', `/api/projects/${pid}/nodes/${id.$billing}`);
+check(billing.node.refs.dono[0] === id.$fin, 'node_ref dono virou aresta');
+check(billing.node.tags[0] === 'core', 'tags normalizadas');
+check(billing.node.space === 'knowledge', 'espaço padrão do tipo-base (knowledge)');
+check(billing.facts.some((f) => f.criticality === 'foundational' && f.text.includes('dia 3')), 'atributo foundational espelhado em Fact');
+check(billing.facts.some((f) => f.text.includes('DEPENDE_DE')), 'aresta critical espelhada em Fact');
+const fin = await api('GET', `/api/projects/${pid}/nodes/${id.$fin}`);
+const doc = await api('GET', `/api/projects/${pid}/nodes/${id.$doc}`);
+check(fin.node.space === 'actors' && doc.node.space === 'knowledge', 'nomes antigos de espaço aceitos como apelido (characters → actors, world → knowledge)');
 
-const st3 = await api('GET', `/api/projects/${pid}/state-at?entity=${id.$ana}&unit=${id.$c3}`);
-check(st3.ended.some(e => e.relType === 'POSSUI'), 'state_at cap3: posse da chave já terminou');
-const st2 = await api('GET', `/api/projects/${pid}/state-at?entity=${id.$ana}&unit=${id.$c2}`);
-check(st2.active.some(e => e.relType === 'POSSUI'), 'state_at cap2: posse ativa');
+const search = await api('GET', `/api/projects/${pid}/nodes?q=cobra`);
+check(search.some((n) => n.id === id.$billing), 'busca full-text encontra Billing por "cobra"');
+const view = await api('POST', `/api/projects/${pid}/graph/view`, { types: ['Área', 'Sistema'], includeIndirect: true, maxHops: 3 });
+check(view.nodes.length === 3, 'graph/view filtra por tipo (3 nós)');
+check(view.indirect.some((l) => [l.from, l.to].includes(id.$fin) && [l.from, l.to].includes(id.$ledger)), 'ligação indireta Financeiro ~ Ledger (via Billing)');
+const path = await api('GET', `/api/projects/${pid}/graph/path?from=${id.$fin}&to=${id.$ledger}`);
+check(path.nodes.length === 3, 'graph/path Financeiro → Billing → Ledger');
+const focus = await api('GET', `/api/projects/${pid}/graph/focus?nodeId=${id.$billing}&hops=1`);
+check(focus.nodes.length === 4 && focus.distance[id.$ledger] === 1, 'graph/focus diretos (4 nós)');
 
-const outline = await api('GET', `/api/projects/${pid}/outline`);
-check(outline.length === 1 && outline[0].children.length === 3 && outline[0].children[0].status === 'pronto', 'outline arco > 3 capítulos');
-
-const search = await api('GET', `/api/projects/${pid}/nodes?q=ladra`);
-check(search.some(n => n.id === id.$ana), 'busca full-text encontra Ana por "ladra"');
-
-const view = await api('POST', `/api/projects/${pid}/graph/view`, { types: ['Personagem', 'Região', 'Item'], includeIndirect: true, maxHops: 3 });
-check(view.nodes.length === 4, 'graph/view filtra por tipo (4 nós)');
-check(view.indirect.some(l => [l.from, l.to].includes(id.$bruno) && [l.from, l.to].includes(id.$deserto)), 'ligação indireta Bruno ~ Mar de Areia (via Ana)');
-
-const path = await api('GET', `/api/projects/${pid}/graph/path?from=${id.$bruno}&to=${id.$chave}`);
-check(path.nodes.length === 3, 'graph/path Bruno → Ana → Chave');
-
-// guardrails
-const bad1 = await api('POST', `/api/projects/${pid}/changesets`, { operations: [{ op: 'create_edge', relType: 'POSSUI', from: id.$chave, to: id.$ana }] }, 400);
-check(bad1.detail.includes('não permitida'), 'rejeita relação fora dos pares permitidos');
-const bad2 = await api('POST', `/api/projects/${pid}/changesets`, { operations: [{ op: 'create_node', type: 'Personagem', name: 'X', attributes: { idade: 'velho' } }] }, 400);
+console.log('# Travas');
+const bad1 = await api('POST', `/api/projects/${pid}/changesets`, { operations: [{ op: 'create_edge', relType: 'DEPENDE_DE', from: id.$fin, to: id.$billing }] }, 400);
+check(bad1.detail.includes('não permitida') && bad1.detail.includes('ATENDE'), 'rejeita par não permitido e sugere a relação que serve');
+const bad2 = await api('POST', `/api/projects/${pid}/changesets`, { operations: [{ op: 'create_node', type: 'Sistema', name: 'X', attributes: { versao: 'velho' } }] }, 400);
 check(bad2.detail.includes('inteiro'), 'rejeita atributo com tipo errado');
-const bad3 = await api('POST', `/api/projects/${pid}/changesets`, { operations: [{ op: 'update_node', id: id.$ana, expectedVersion: 99, summary: 'x' }] }, 409);
+const bad3 = await api('POST', `/api/projects/${pid}/changesets`, { operations: [{ op: 'update_node', id: id.$billing, expectedVersion: 99, summary: 'x' }] }, 409);
 check(bad3.detail.includes('Conflito'), 'conflito de versão');
 const bad4 = await api('POST', `/api/projects/${pid}/changesets`, { operations: [
-  { op: 'create_node', ref: '$z', type: 'Item', name: 'Temporário' },
-  { op: 'create_edge', relType: 'POSSUI', from: id.$chave, to: '$z' },
+  { op: 'create_node', ref: '$z', type: 'Sistema', name: 'Temporário' },
+  { op: 'create_edge', relType: 'DEPENDE_DE', from: id.$fin, to: '$z' },
 ] }, 400);
 const after4 = await api('GET', `/api/projects/${pid}/nodes?q=Temporário`);
 check(bad4.detail && after4.length === 0, 'lote atômico: nada gravado quando uma op falha');
+const bad5 = await api('POST', `/api/projects/${pid}/changesets`, { operations: [{ op: 'upsert_node_type', definition: { name: 'Capítulo', base: 'Unit' } }] }, 400);
+check(bad5.detail.includes('Tipo-base inválido'), 'tipo-base narrativo Unit não existe mais');
+const bad6 = await api('POST', `/api/projects/${pid}/changesets`, { operations: [{ op: 'upsert_node_type', definition: { name: 'Prazo', base: 'Concept', attributes: [{ key: 'quando', dataType: 'story_time' }] } }] }, 400);
+check(bad6.detail.includes('dataType inválido'), 'dataType story_time não existe mais');
 
-const upd = await ops(pid, 'tirar foundational', [{ op: 'update_node', id: id.$ana, expectedVersion: 1, attributeCriticality: { poder: 'normal' }, attributes: { idade: 28 } }]);
-const ana2 = await api('GET', `/api/projects/${pid}/nodes/${id.$ana}`);
-check(upd.status === 'applied' && ana2.node.version === 2 && ana2.node.attributes.idade === 28, 'update com versão');
-check(!ana2.facts.some(f => f.text.includes('só à noite')), 'fato espelhado removido ao voltar para normal');
+const dry = await api('POST', `/api/projects/${pid}/changesets`, { mode: 'dry_run', operations: [
+  { op: 'create_node', ref: '$x', type: 'Sistema', name: 'Dry' },
+  { op: 'create_edge', relType: 'DEPENDE_DE', from: id.$fin, to: id.$billing },
+  { op: 'create_node', type: 'Inexistente', name: 'ruim' },
+] });
+check(dry.status === 'dry_run' && (dry.errors ?? []).length === 2, `dryRun lista todos os erros (${(dry.errors ?? []).length})`);
+check(!(await api('GET', `/api/projects/${pid}/nodes?q=Dry`)).some((n) => n.name === 'Dry'), 'dryRun não grava nada');
+const be = await ops(pid, 'best effort', [
+  { op: 'create_node', ref: '$y', type: 'Sistema', name: 'CRM' },
+  { op: 'create_node', type: 'Inexistente', name: 'ruim' },
+], 'best_effort');
+check(be.ids?.$y && (be.errors ?? []).length === 1, 'best_effort aplica as válidas e reporta o resto');
 
-const audit = await api('GET', `/api/projects/${pid}/audit?entityId=${id.$ana}`);
-check(audit.length === 2 && audit[0].before.attributes.idade === 27, 'auditoria com antes/depois');
+const upd = await ops(pid, 'tirar foundational', [{ op: 'update_node', id: id.$billing, expectedVersion: 1, attributeCriticality: { limite: 'normal' }, attributes: { versao: 5 } }]);
+const billing2 = await api('GET', `/api/projects/${pid}/nodes/${id.$billing}`);
+check(upd.status === 'applied' && billing2.node.version === 2 && billing2.node.attributes.versao === 5, 'update com versão');
+check(!billing2.facts.some((f) => f.text.includes('dia 3')), 'fato espelhado removido ao voltar para normal');
+const audit = await api('GET', `/api/projects/${pid}/audit?entityId=${id.$billing}`);
+check(audit.length === 2 && audit[0].before.attributes.versao === 4, 'auditoria com antes/depois');
+
+console.log('# Diretivas');
+const d = await ops(pid, 'diretiva', [{ op: 'upsert_directive', text: 'Cite sempre o documento.', definition: { when: ['context'], types: ['Sistema'] } }]);
+const dirId = d.changes[0].id;
+await ops(pid, 'editar diretiva', [{ op: 'upsert_directive', id: dirId, text: 'Cite sempre o documento de origem.', definition: { when: ['context'], types: ['Sistema'], enabled: false } }]);
+const dirs = (await api('GET', `/api/projects/${pid}/directives`)).filter((x) => x.source === 'project');
+check(dirs.length === 1 && dirs[0].text === 'Cite sempre o documento de origem.' && dirs[0].enabled === false, 'diretiva editada pelo id e desligada');
+
+console.log('# Camada narrativa removida');
+for (const [path, label] of [[`/api/projects/${pid}/outline`, 'outline'], [`/api/projects/${pid}/state-at?entity=${id.$billing}&unit=${id.$doc}`, 'state-at'],
+  ['/api/harness/templates', 'templates'], [`/api/projects/${pid}/threads`, 'threads']]) {
+  const r = await fetch(BASE + path);
+  check(r.status === 404, `endpoint ${label} não existe mais (404)`);
+}
 
 console.log('# MCP');
 async function mcp(sessionId, method, params, idn) {
@@ -125,52 +161,85 @@ async function mcp(sessionId, method, params, idn) {
   });
   const sid = res.headers.get('mcp-session-id') ?? sessionId;
   const text = await res.text();
-  const dataLine = text.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5)).join('');
-  const msg = JSON.parse(dataLine || text);
-  return { sid, msg };
+  const dataLine = text.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5)).join('');
+  return { sid, msg: JSON.parse(dataLine || text) };
 }
-const init = await mcp(null, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'smoke', version: '1' } }, 1);
-check(init.msg.result?.instructions?.includes('session_begin'), 'initialize devolve instructions do harness');
+let rpc = 1;
+const init = await mcp(null, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'smoke', version: '1' } }, rpc++);
+const instr = init.msg.result?.instructions ?? '';
+check(instr.includes('session_begin') && !/stories|writing_context|revealAt|unit_text/i.test(instr), 'instructions do harness sem a camada narrativa');
 await fetch(BASE + '/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': init.sid },
   body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) });
-const tools = await mcp(init.sid, 'tools/list', {}, 2);
-const names = tools.msg.result.tools.map(t => t.name);
-check(names.includes('propose_changes') && names.length >= 23, 'tools/list: ' + names.length + ' tools');
-const propose = tools.msg.result.tools.find(t => t.name === 'propose_changes');
-check(JSON.stringify(propose.inputSchema).includes('expectedVersion'), 'schema de propose_changes descreve Operation');
+const sid = init.sid;
+const tool = async (name, args) => {
+  const r = await mcp(sid, 'tools/call', { name, arguments: args }, rpc++);
+  const text = r.msg.result?.content?.[0]?.text ?? '';
+  let body = null;
+  try { body = JSON.parse(text); } catch { /* error text */ }
+  return { isError: r.msg.result?.isError === true, text, body };
+};
+const tools = (await mcp(sid, 'tools/list', {}, rpc++)).msg.result.tools;
+const names = tools.map((t) => t.name);
+const narrativeTools = ['unit_text_set', 'unit_text_append', 'unit_text_get', 'unit_text_history', 'unit_text_diff', 'unit_cast_set', 'unit_validate',
+  'manuscript_export', 'writing_context', 'state_at', 'story_outline', 'open_threads', 'milestone_coverage', 'template_list', 'template_apply',
+  'template_derive', 'template_upsert', 'template_delete', 'profile_list', 'profile_apply', 'project_settings'];
+check(names.includes('propose_changes') && names.includes('context_create') && names.includes('edge_get'), `tools/list: ${names.length} tools`);
+check(!narrativeTools.some((t) => names.includes(t)), 'nenhuma tool narrativa no MCP');
+const schemaJson = JSON.stringify(tools.find((t) => t.name === 'propose_changes').inputSchema);
+check(schemaJson.includes('expectedVersion') && !/fromUnit|revealAt|"cast"/.test(schemaJson), 'schema de propose_changes sem campos narrativos');
 
-const begin = await mcp(init.sid, 'tools/call', { name: 'session_begin', arguments: { projectId: pid, goal: 'smoke test' } }, 3);
-const briefing = JSON.parse(begin.msg.result.content[0].text);
-check(briefing.sessionId && briefing.foundationalFacts.length >= 1 && briefing.nodeTypes.length === 5, 'session_begin devolve briefing');
+const begin = await tool('session_begin', { projectId: pid, goal: 'smoke test' });
+const briefing = begin.body;
+check(briefing.sessionId && briefing.foundationalFacts.length >= 1 && briefing.nodeTypes.length === 3, 'session_begin devolve briefing');
+check(!('outline' in briefing) && !('openThreads' in briefing) && !('words' in (briefing.stats ?? {})), 'briefing sem estrutura narrativa, ganchos ou palavras');
+check(briefing.guidance.some((g) => g.includes('Contexto: Smoke')), 'briefing traz o contexto do projeto');
+const s = briefing.sessionId;
+const noVersion = await tool('propose_changes', { projectId: pid, title: 'llm', sessionId: s, operations: [{ op: 'update_node', id: id.$ledger, summary: 'sem versão' }] });
+check(noVersion.isError && noVersion.text.includes('expectedVersion'), 'LLM sem expectedVersion é barrada');
+const p1 = await tool('propose_changes', { projectId: pid, title: 'a', sessionId: s, operations: [{ op: 'create_node', ref: '$erp', type: 'Sistema', name: 'ERP' }] });
+const p2 = await tool('propose_changes', { projectId: pid, title: 'b', sessionId: s, operations: [{ op: 'create_edge', ref: '$e', relType: 'DEPENDE_DE', from: '$erp', to: id.$ledger }] });
+check(!p2.isError && p2.body.status === 'applied', 'apelido $ da sessão reaproveitado num lote seguinte');
+const eg = await tool('edge_get', { projectId: pid, ids: [p2.body.ids.$e] });
+check(!eg.isError && eg.text.includes(p2.body.ids.$e) && eg.text.includes('"version"'), 'edge_get devolve a aresta com a versão');
+const dr = await tool('propose_changes', { projectId: pid, title: 'dry', dryRun: true, operations: [{ op: 'create_node', type: 'Inexistente', name: 'z' }, { op: 'create_node', type: 'Sistema', name: 'zz' }] });
+check(dr.body?.status === 'dry_run' && dr.body.errors.length === 1, 'dryRun via MCP');
+const gf = await tool('graph_focus', { projectId: pid, nodeId: id.$ledger, allConnected: true });
+check(!gf.isError && gf.body.nodes.length >= 5, 'graph_focus todos ligados via MCP');
+await tool('session_checkpoint', { projectId: pid, sessionId: s, summary: 'criei o ERP', todos: ['documentar o ERP'] });
+const resume = await tool('session_resume', { projectId: pid });
+check(resume.body.lastCheckpoint.summary === 'criei o ERP' && resume.body.sessionRefs?.$erp === p1.body.ids.$erp, 'session_resume traz checkpoint e apelidos');
+const noCtxTool = await tool('project_create', { name: 'x' });
+check(noCtxTool.isError && noCtxTool.text.includes('contextId'), 'project_create exige contextId');
 
-const llmWrite = await mcp(init.sid, 'tools/call', { name: 'propose_changes', arguments: { projectId: pid, title: 'llm', sessionId: briefing.sessionId,
-  operations: [{ op: 'update_node', id: id.$bruno, summary: 'sem versão' }] } }, 4);
-check(llmWrite.msg.result?.isError === true && JSON.stringify(llmWrite.msg.result).includes('expectedVersion'), 'LLM sem expectedVersion é barrada');
+const res = await mcp(sid, 'resources/read', { uri: 'harness://manual' }, rpc++);
+const manual = res.msg.result.contents[0].text;
+check(manual.includes('## Contexts') && !/Narrative time|Manuscript|revealAt|writing_context/.test(manual), 'manual (en) sem a camada narrativa');
+const resPt = await mcp(sid, 'resources/read', { uri: 'harness://manual/pt' }, rpc++);
+check(resPt.msg.result.contents[0].text.includes('## Contextos'), 'manual (pt)');
+const prompts = (await mcp(sid, 'prompts/list', {}, rpc++)).msg.result.prompts.map((p) => p.name).sort();
+check(JSON.stringify(prompts) === JSON.stringify(['answer_from_graph', 'design_context', 'ingest_document']), 'prompts genéricos: ' + prompts.join(', '));
 
-const llmOk = await mcp(init.sid, 'tools/call', { name: 'propose_changes', arguments: { projectId: pid, title: 'llm cria item', sessionId: briefing.sessionId,
-  operations: [{ op: 'create_node', ref: '$adaga', type: 'Item', name: 'Adaga' }, { op: 'create_edge', relType: 'POSSUI', from: id.$bruno, to: '$adaga', fromUnit: id.$c2 }] } }, 5);
-const llmRes = JSON.parse(llmOk.msg.result.content[0].text);
-check(llmRes.status === 'applied' && llmRes.ids.$adaga, 'LLM grava via propose_changes');
-
-const cp = await mcp(init.sid, 'tools/call', { name: 'session_checkpoint', arguments: { projectId: pid, sessionId: briefing.sessionId, summary: 'criei a adaga', todos: ['capítulo 4'] } }, 6);
-check(!cp.msg.result.isError, 'session_checkpoint');
-const resume = await mcp(init.sid, 'tools/call', { name: 'session_resume', arguments: { projectId: pid } }, 7);
-check(JSON.parse(resume.msg.result.content[0].text).lastCheckpoint.summary === 'criei a adaga', 'session_resume traz último checkpoint');
-
-const res = await mcp(init.sid, 'resources/read', { uri: 'harness://manual' }, 8);
-check(res.msg.result.contents[0].text.includes('Narrative time'), 'resource harness://manual (en)');
-const resPt = await mcp(init.sid, 'resources/read', { uri: 'harness://manual/pt' }, 10);
-check(resPt.msg.result.contents[0].text.includes('Tempo narrativo'), 'resource harness://manual/pt');
-const prompts = await mcp(init.sid, 'prompts/list', {}, 9);
-check(prompts.msg.result.prompts.length === 3, 'prompts/list: 3 prompts');
+console.log('# Clone com tradução (contexto corporativo)');
+const corp = await api('POST', '/api/contexts/corporate/projects', { name: 'Smoke corp ' + stamp, locale: 'pt' }, 201);
+created.projects.push(corp);
+const team = await ops(corp.id, 'equipe', [{ op: 'create_node', ref: '$t', type: 'Equipe', name: 'Time de Dados', attributes: { area: 'engenharia' } }]);
+const cl = await api('POST', `/api/projects/${corp.id}/clone`, { newName: 'Smoke corp en ' + stamp, translateTo: 'en' }, 201);
+created.projects.push({ id: cl.projectId, name: cl.name });
+const cs = await api('GET', `/api/projects/${cl.projectId}/schema`);
+check(cs.nodeTypes.some((t) => t.name === 'Team') && !cs.relTypes.some((r) => r.name === 'CONTAINS'), 'clone traduzido (Equipe → Team), sem relação CONTAINS');
+const teamEn = await api('GET', `/api/projects/${cl.projectId}/nodes/${cl.idMap[team.ids.$t]}`);
+check(teamEn.node.type === 'Team' && teamEn.node.attributes.area === 'engineering', 'nó migrado (engenharia → engineering)');
 
 console.log('# Limpeza');
-const wrong = await api('DELETE', `/api/projects/${pid}?confirm=nome-errado`, undefined, 400);
-check(wrong.detail.includes('não confere'), 'exclusão exige o nome exato');
-await api('DELETE', `/api/projects/${pid}?confirm=${encodeURIComponent(project.name)}`, undefined, 204);
-const gone = await api('GET', `/api/projects/${pid}/audit`, undefined, 200);
-const stillThere = (await api('GET', '/api/projects')).some((p) => p.id === pid);
-check(!stillThere && gone.length === 0, 'projeto de teste excluído (grafo e histórico)');
+if (KEEP) console.log('  (mantidos: ' + created.projects.map((p) => p.id).join(', ') + ', contexto ' + ctx.id + ')');
+else {
+  const wrong = await api('DELETE', `/api/projects/${pid}?confirm=nome-errado`, undefined, 400);
+  check(wrong.detail.includes('não confere'), 'exclusão exige o nome exato');
+  for (const p of created.projects) await api('DELETE', `/api/projects/${p.id}?confirm=${encodeURIComponent(p.name)}`, undefined, 204);
+  for (const c of created.contexts) await api('DELETE', `/api/contexts/${c.id}?confirm=${encodeURIComponent(c.name)}`, undefined, 204);
+  const left = await api('GET', '/api/projects?all=true');
+  check(!left.some((p) => created.projects.some((c) => c.id === p.id) || p.id === ctx.blueprintProjectId), 'projetos e contexto de teste excluídos');
+}
 
 console.log(failures === 0 ? '\nTUDO OK' : `\n${failures} FALHA(S)`);
 process.exit(failures === 0 ? 0 : 1);

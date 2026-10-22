@@ -9,7 +9,7 @@ import java.util.Optional;
  * User-defined node type, extending a base kind.
  *
  * @param strict    when true (default), attributes outside the definition are rejected
- * @param systemKey language-independent key the engine relies on (template, beat, thread); null for ordinary types
+ * @param systemKey language-independent key the engine relies on to find a type whatever its name; null for ordinary types
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record NodeTypeDef(
@@ -44,7 +44,7 @@ public record NodeTypeDef(
         return attrs().stream().filter(a -> a.key().equals(key)).findFirst();
     }
 
-    /** First attribute with the given role (manuscript, word_count, location, secret). */
+    /** First attribute with the given role (e.g. link). */
     public Optional<AttrDef> attrWithRole(String role) {
         return attrs().stream().filter(a -> role.equals(a.role())).findFirst();
     }

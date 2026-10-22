@@ -1,7 +1,6 @@
 import type {
-  AppliedTemplate, AuditEntry, ChangesetRow, CloneResult, ContextView, Coverage, Directive, Fact, FocusResult, GEdge, GNode, ImportResult, IndirectLink, LocalizeReport, NodeDetail,
-  Operation, OutlineItem, ProfileSummary, Project, Proposal, Schema, TemplateDef, TemplateSummary, TextDiff, TextRead, TextVersion, TextWrite, Thread,
-  Validation, ViewFilter, ViewResult, WritingContext,
+  AuditEntry, ChangesetRow, CloneResult, ContextView, Directive, Fact, FocusResult, GEdge, GNode, ImportResult, IndirectLink, LocalizeReport, NodeDetail,
+  Operation, ProfileSummary, Project, Proposal, Schema, ViewFilter, ViewResult,
 } from './types';
 import { lang } from './i18n';
 
@@ -48,22 +47,20 @@ export const api = {
   createProject: (p: Partial<Project>) => call<Project>('POST', '/api/projects', p),
   updateProject: (id: string, p: Partial<Project>) => call<Project>('PATCH', `/api/projects/${id}`, p),
   deleteProject: (id: string, confirmName: string) => call<void>('DELETE', `/api/projects/${id}${qs({ confirm: confirmName })}`),
-  cloneProject: (id: string, body: { newName: string; includeUnits?: boolean; includeFacts?: boolean; includeDirectives?: boolean; includeTemplates?: boolean; translateTo?: string }) =>
+  cloneProject: (id: string, body: { newName: string; includeNodes?: boolean; includeFacts?: boolean; includeDirectives?: boolean; translateTo?: string }) =>
     call<CloneResult>('POST', `/api/projects/${id}/clone`, body),
   localizeProject: (id: string, locale: string) => call<LocalizeReport>('POST', `/api/projects/${id}/localize`, { locale }),
-  exportUrl: (id: string, format: string) => `/api/projects/${id}/export${qs({ format })}`,
   schema: (pid: string) => call<Schema>('GET', `/api/projects/${pid}/schema`),
 
   view: (pid: string, f: ViewFilter, includeContext: boolean) =>
     call<ViewResult>('POST', `/api/projects/${pid}/graph/view`, { ...f, minCriticality: f.minCriticality || undefined, includeContext, limit: 2000 }),
-  focus: (pid: string, nodeId: string, all: boolean, includeStructure: boolean) =>
-    call<FocusResult>('GET', `/api/projects/${pid}/graph/focus${qs({ nodeId, hops: 1, all: String(all), includeStructure: String(includeStructure) })}`),
+  focus: (pid: string, nodeId: string, all: boolean) =>
+    call<FocusResult>('GET', `/api/projects/${pid}/graph/focus${qs({ nodeId, hops: 1, all: String(all) })}`),
   indirect: (pid: string, ids: string[], maxHops: number, relTypes: string[]) =>
     call<IndirectLink[]>('POST', `/api/projects/${pid}/graph/indirect`, { ids, maxHops, relTypes }),
   nodes: (pid: string, params: { q?: string; types?: string[]; bases?: string[]; limit?: number; detail?: string }) =>
     call<GNode[]>('GET', `/api/projects/${pid}/nodes${qs(params)}`),
   node: (pid: string, id: string) => call<NodeDetail>('GET', `/api/projects/${pid}/nodes/${id}`),
-  outline: (pid: string) => call<OutlineItem[]>('GET', `/api/projects/${pid}/outline`),
   facts: (pid: string, params: { minCriticality?: string; q?: string; about?: string[] }) =>
     call<Fact[]>('GET', `/api/projects/${pid}/facts${qs(params)}`),
   edgeContext: (pid: string, nodeId: string) => call<{ nodes: GNode[]; edges: GEdge[] }>('GET', `/api/projects/${pid}/graph/neighborhood${qs({ nodeId })}`),
@@ -75,33 +72,9 @@ export const api = {
   reject: (pid: string, id: string, reason: string) => call<void>('POST', `/api/projects/${pid}/changesets/${id}/reject`, { reason }),
   audit: (pid: string, entityId?: string) => call<AuditEntry[]>('GET', `/api/projects/${pid}/audit${qs({ entityId })}`),
 
-  profiles: () => call<ProfileSummary[]>('GET', '/api/harness/profiles'),
-  templateLibrary: () => call<TemplateSummary[]>('GET', '/api/harness/templates'),
-  template: (id: string) => call<TemplateDef>('GET', `/api/harness/templates/${id}`),
-  deriveTemplate: (body: { fromProjectId: string; unitType: string; name?: string; description?: string; includeChildren?: boolean }) =>
-    call<TemplateDef>('POST', '/api/harness/templates/derive', body),
-  upsertTemplate: (def: TemplateDef) => call<TemplateDef>('PUT', '/api/harness/templates', def),
-  deleteTemplate: (id: string) => call<void>('DELETE', `/api/harness/templates/${id}`),
-  applyProfile: (pid: string, profileId: string) => call<Proposal>('POST', `/api/projects/${pid}/profile/apply`, { profileId }),
-  appliedTemplates: (pid: string) => call<AppliedTemplate[]>('GET', `/api/projects/${pid}/templates`),
-  applyTemplate: (pid: string, body: { templateId: string; unitType?: string; plannedUnits?: number; scopeUnitId?: string }) =>
-    call<Proposal>('POST', `/api/projects/${pid}/templates/apply`, body),
-  coverage: (pid: string) => call<Coverage[]>('GET', `/api/projects/${pid}/coverage`),
-  threads: (pid: string, includeClosed = false) => call<Thread[]>('GET', `/api/projects/${pid}/threads${qs({ includeClosed: String(includeClosed) })}`),
-  writingContext: (pid: string, unitId: string, opts: { maxTokens?: number; tailParagraphs?: number; focus?: string[] } = {}) =>
-    call<WritingContext>('GET', `/api/projects/${pid}/writing-context/${unitId}${qs(opts)}`),
+  presets: () => call<ProfileSummary[]>('GET', '/api/harness/presets'),
+  applyPreset: (pid: string, profileId: string) => call<Proposal>('POST', `/api/projects/${pid}/preset/apply`, { profileId }),
   directives: (pid: string) => call<Directive[]>('GET', `/api/projects/${pid}/directives`),
-
-  unitText: (pid: string, unitId: string, version?: number) => call<TextRead>('GET', `/api/projects/${pid}/units/${unitId}/text${qs({ version })}`),
-  setUnitText: (pid: string, unitId: string, body: { text: string; mode?: 'replace' | 'append'; note?: string; attribute?: string }) =>
-    call<TextWrite>('PUT', `/api/projects/${pid}/units/${unitId}/text`, body),
-  textHistory: (pid: string, unitId: string) => call<TextVersion[]>('GET', `/api/projects/${pid}/units/${unitId}/text/history`),
-  textDiff: (pid: string, unitId: string, from: number, to?: number) =>
-    call<TextDiff>('GET', `/api/projects/${pid}/units/${unitId}/text/diff${qs({ from, to })}`),
-  setCast: (pid: string, unitId: string, nodeIds: string[], mode: 'replace' | 'add' = 'replace') =>
-    call<Proposal>('PUT', `/api/projects/${pid}/units/${unitId}/cast`, { nodeIds, mode }),
-  validateUnit: (pid: string, unitId: string, text?: string) =>
-    call<Validation>('POST', `/api/projects/${pid}/units/${unitId}/validate`, text === undefined ? {} : { text }),
 
   /** obliterate-archive download: one project, or everything when no id */
   archiveUrl: (pid?: string) => (pid ? `/api/projects/${pid}/export` : '/api/export'),

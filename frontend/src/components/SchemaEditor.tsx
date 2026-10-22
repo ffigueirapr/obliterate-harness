@@ -9,7 +9,7 @@ type Run = (title: string, ops: Operation[]) => Promise<boolean>;
 type Sel = { kind: 'node'; def: Partial<NodeTypeDef> } | { kind: 'rel'; def: Partial<RelTypeDef> } | { kind: 'object'; def: Partial<ObjectTypeDef> } | null;
 
 /** Attribute roles the engine understands, whatever the attribute is called. */
-const ROLES = ['manuscript', 'word_count', 'location', 'secret', 'link'];
+const ROLES = ['link'];
 
 export function SchemaEditor({ schema, run, onClose }: { schema: Schema; run: Run; onClose: () => void }) {
   const [sel, setSel] = useState<Sel>(schema.nodeTypes[0] ? { kind: 'node', def: schema.nodeTypes[0] } : null);
@@ -43,8 +43,8 @@ export function SchemaEditor({ schema, run, onClose }: { schema: Schema; run: Ru
           </div>
         </div>
         <div>
-          {!sel && <p className="muted">{t('Start by creating node types (e.g. Character with base Agent, Chapter with base Narrative unit).',
-            'Comece criando tipos de nó (ex.: Personagem com base Agente, Capítulo com base Unidade narrativa).')}</p>}
+          {!sel && <p className="muted">{t('Start by creating node types (e.g. Team with base Agent, Product with base Object, Document with base Media).',
+            'Comece criando tipos de nó (ex.: Equipe com base Agente, Produto com base Objeto, Documento com base Mídia).')}</p>}
           <p className="small muted">{t('⚙ = used by the engine (system key): it finds the type by the key, whatever its name or language.',
             '⚙ = usado pelo motor (chave de sistema): ele acha o tipo pela chave, seja qual for o nome ou idioma.')}</p>
           {sel?.kind === 'node' && <NodeTypeForm key={sel.def.id ?? 'new'} def={sel.def} schema={schema} run={run} onSaved={() => setSel(null)} />}
@@ -100,8 +100,8 @@ function ObjectTypeForm({ def, schema, run, onSaved }: { def: Partial<ObjectType
   };
   return (
     <div>
-      <p className="small muted">{t('Custom objects are reusable structures for composite attributes (e.g. a Stat Sheet with strength and agility).',
-        'Objetos customizados são estruturas reutilizáveis para atributos do tipo composite (ex.: Ficha de Status com força e agilidade).')}</p>
+      <p className="small muted">{t('Custom objects are reusable structures for composite attributes (e.g. an Address with street and city).',
+        'Objetos customizados são estruturas reutilizáveis para atributos do tipo composite (ex.: Endereço com rua e cidade).')}</p>
       <div className="field"><label>{t('Name', 'Nome')}</label><input value={d.name ?? ''} onChange={(e) => setD({ ...d, name: e.target.value })} /></div>
       <div className="field"><label>{t('Description', 'Descrição')}</label><input value={d.description ?? ''} onChange={(e) => setD({ ...d, description: e.target.value })} /></div>
       <AttrTable attrs={d.fields ?? []} schema={schema} allowRefs={false} onChange={(a) => setD({ ...d, fields: a })} />
@@ -120,7 +120,7 @@ function AttrTable({ attrs, schema, allowRefs, onChange }: { attrs: AttrDef[]; s
         <thead><tr>
           <th>{t('Key', 'Chave')}</th><th>{t('Label', 'Rótulo')}</th><th>{t('Type', 'Tipo')}</th><th>{t('Detail', 'Detalhe')}</th>
           <th title={t('Required', 'Obrigatório')}>{t('Req.', 'Obr.')}</th><th>{t('Default criticality', 'Criticidade padrão')}</th>
-          {allowRefs && <th title={t('What the engine uses it for: manuscript (the unit\'s text), word_count, location, secret', 'Para que o motor usa: manuscript (texto da unidade), word_count, location, secret')}>{t('Role', 'Papel')}</th>}
+          {allowRefs && <th title={t('What the engine uses it for: link (URL of the source document, opened with a click)', 'Para que o motor usa: link (URL do documento de origem, aberta com um clique)')}>{t('Role', 'Papel')}</th>}
           <th />
         </tr></thead>
         <tbody>
@@ -199,7 +199,7 @@ function RelTypeForm({ def, schema, run, onSaved }: { def: Partial<RelTypeDef>; 
         <div className="field"><label>{t('Name', 'Nome')}</label><input value={d.name ?? ''} placeholder={t('HATES', 'ODEIA')} onChange={(e) => setD({ ...d, name: e.target.value })} /></div>
         <div className="field"><label>{t('Base kind', 'Tipo-base')}</label>
           <select value={d.base} onChange={(e) => setD({ ...d, base: e.target.value })}>
-            {REL_BASES.filter((b) => b !== 'STRUCTURE').map((b) => <option key={b}>{b}</option>)}
+            {REL_BASES.map((b) => <option key={b}>{b}</option>)}
           </select></div>
       </div>
       {d.systemKey && <p className="small muted">⚙ {t('System key', 'Chave de sistema')}: <code>{d.systemKey}</code></p>}

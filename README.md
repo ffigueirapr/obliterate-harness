@@ -1,8 +1,8 @@
 # Obliterate Harness
 
-> Spin-off da Harness Machine: um "cérebro" em grafo, parametrizável para qualquer domínio, operado por pessoas (interface) e por LLMs (MCP).
+> Um "cérebro" em grafo, aberto a qualquer domínio: pessoas (pela interface) e LLMs (pelo MCP) definem os tipos de nó, as relações, as regras e o comportamento da IA, e depois consultam e alimentam o grafo de forma estruturada.
 
-**Status:** fase 0 concluída + **contextos** (primeira entrega da plataforma multi-domínio).
+**Status:** plataforma multi-domínio. A camada narrativa da POC original (livros, mangá, templates de história, manuscrito) foi removida; o domínio agora é sempre definido por um contexto.
 
 ## Contextos
 
@@ -10,27 +10,23 @@ A tela inicial é a escolha do **contexto**: o domínio que a plataforma vai rod
 
 | Contexto | O que traz |
 |---|---|
-| 📖 **Histórias e mundos** (embutido) | Tudo o que a Harness Machine fazia: perfis livro, mangá, filme…, unidades, ganchos, templates, manuscrito |
 | 🏢 **Cérebro corporativo** (embutido) | Equipe, Pessoa, Cliente, Parceiro, Concorrente, Produto, Contrato, Pricing, Oportunidade, Regra de negócio, Integração, Playbook, Documento (com link), Inteligência de mercado, Decisão, Termo do glossário; relações como ATENDE (BizDev → cliente), TEM_PRODUTO_HABILITADO, REGIDO_POR, PRECIFICADO_POR, DOCUMENTADO_EM; diretivas de "responder só com fonte" e "regras são vinculantes" |
 | 🧩 **Contextos seus** | Criados na tela inicial (em branco ou a partir de outro contexto) ou por um Claude via MCP (`context_create`) |
 
 Como funciona por baixo:
-- Os contextos embutidos vêm de YAML (`harness/contexts/*.yaml`) e apontam para perfis (`harness/profiles/`).
+- Os contextos embutidos vêm de YAML (`harness/contexts/*.yaml`) e apontam para presets de schema (`harness/profiles/`).
 - Um contexto criado guarda sua definição num **projeto-molde** escondido: tipos, relações, atributos, regras (fatos) e diretivas. "Editar definição" abre esse molde no editor de sempre, e um Claude o edita com `propose_changes`.
 - Um projeto novo no contexto nasce com uma cópia da definição (só o schema, as regras e as diretivas; nós de exemplo do molde não vão junto).
-- Novo papel de atributo: `link`, uma URL para o documento com o detalhe, aberta com um clique na interface.
+- Papel de atributo `link`: uma URL para o documento com o detalhe, aberta com um clique na interface.
+- O grafo se divide em três espaços (abas): `actors` (pessoas, equipes, organizações), `knowledge` (todo o resto) e `analysis`. Cada contexto dá o próprio nome a eles.
 
-MCP: `context_list`, `context_get`, `context_create`, `context_update`; `project_list(contextId)`; `project_create(contextId, profile)`. O `session_begin` traz o contexto e as instruções dele no briefing.
+MCP: `context_list`, `context_get`, `context_create`, `context_update`; `project_list(contextId)`; `project_create(contextId, preset)`. O `session_begin` traz o contexto e as instruções dele no briefing. Prompts prontos: `design_context`, `ingest_document` e `answer_from_graph`.
 
 Projeto de demonstração: `node scripts/seed_demo_corporativo.mjs` cria "Demo — Pagamentos Exemplo S.A." (empresa fictícia) no contexto corporativo.
 
 ## A ideia em uma frase
 
-Em vez de uma plataforma de roteiro, uma plataforma **em branco**: o usuário define os tipos de nó e de relação e **como eles se comportam** (via *traits*), empacota tudo num **pacote de domínio** e conecta LLMs via MCP para consultar e alimentar o grafo de forma estruturada. Histórias viram só um pacote; uma empresa (áreas, capacidades, processos, sistemas, documentos) vira outro.
-
-## Critério de sucesso
-
-Instalar um **Pacote Narrativo** e reproduzir o projeto Bronze Age (e os smoke tests da Harness Machine) sem nenhuma linha de código narrativo no núcleo.
+Uma plataforma **em branco**: o usuário (ou uma LLM) define os tipos de nó e de relação, as regras vinculantes e como a IA deve se comportar, num **contexto**; depois conecta LLMs via MCP para consultar e alimentar o grafo de forma estruturada, sem depender da janela de contexto delas. Uma empresa (áreas, produtos, regras, sistemas, documentos) é um contexto; uma base de pesquisa é outro.
 
 ## Rodar
 
@@ -74,34 +70,26 @@ Para parar (os dados ficam nos volumes `neo4j_data` e `pg_data`):
 docker compose down
 ```
 
-Roda **ao lado** da Harness Machine, sem conflito: projeto Compose, volumes e portas próprios.
+| Serviço | Endereço |
+|---|---|
+| Interface | http://localhost:5273 |
+| API REST | http://localhost:8180/api |
+| MCP | http://localhost:8180/mcp |
+| Neo4j Browser | http://localhost:7574 (bolt 7787) |
+| Postgres | localhost:5532 |
 
-| Serviço | Obliterate Harness | (Harness Machine) |
-|---|---|---|
-| Interface | http://localhost:5273 | 5173 |
-| API REST | http://localhost:8180/api | 8080 |
-| MCP | http://localhost:8180/mcp | 8080 |
-| Neo4j Browser | http://localhost:7574 (bolt 7787) | 7474 / 7687 |
-| Postgres | localhost:5532 | 5432 |
+Tudo fica preso em `127.0.0.1`. O Neo4j usa heap 2G e pagecache 1G.
 
-Tudo fica preso em `127.0.0.1`. O Neo4j daqui usa menos memória (heap 2G, pagecache 1G) para conviver com a outra stack.
+Na primeira subida depois de atualizar, uma migração automática converte grafos antigos: remove a estrutura narrativa (relação `CONTAINS`, âncoras de tempo, segredos, estilo), transforma nós dos tipos-base removidos em comuns (`Unit` → `Note`, `Device` → `Concept`) e renomeia os espaços (`world` → `knowledge`, `characters` → `actors`). Nenhum nó é apagado.
 
-Testes de ponta a ponta (herdados; o padrão já aponta para a porta 8180):
+Testes de ponta a ponta (o padrão aponta para a porta 8180):
 
 ```bash
 node scripts/smoke.mjs
 ```
 
 ```bash
-node scripts/smoke_fase4.mjs
-```
-
-```bash
 node scripts/smoke_foco.mjs
-```
-
-```bash
-node scripts/smoke_backlog.mjs
 ```
 
 ```bash
@@ -167,13 +155,12 @@ Formato (`version` 1):
 claude mcp add --transport http obliterate http://localhost:8180/mcp
 ```
 
-## O que mudou em relação à Harness Machine (fase 0)
+## Origem
 
-- Pacote Java `com.harnessmachine` → `com.obliterateharness`; artefato `obliterate-harness`.
-- Nome do servidor MCP e da aplicação: `obliterate-harness`; marca "Obliterate Harness" na interface, nos manuais e nas instruções do MCP.
-- Portas, projeto Compose e volumes próprios.
-- Mantidos de propósito até a fase 3: o esquema `harness://` dos resources, os nomes das classes (`HarnessTools`, `NarrativeService`…) e todo o comportamento narrativo.
+O projeto nasceu como spin-off da Harness Machine, uma plataforma de roteiro e construção de mundo. A camada narrativa (unidades, manuscrito, templates de estrutura, ganchos, segredos, perfis de mídia) foi removida em 21/10/2026; o núcleo (grafo tipado, changesets auditados, fatos e diretivas, contextos, MCP) ficou.
 
 ## Notas de manutenção deste arquivo
 
-- Criado em 19/10/2026; atualizado em 19/10/2026 com a conclusão da fase 0 e com os contextos (tela inicial, contexto corporativo, contextos criados por pessoas e LLMs); atualizado em 21/10/2026 com exportar/importar.
+- Criado em 19/10/2026; atualizado em 19/10/2026 com a conclusão da fase 0 e com os contextos (tela inicial, contexto corporativo, contextos criados por pessoas e LLMs).
+- 21/10/2026: removida a camada narrativa; espaços renomeados; prompts MCP genéricos; migração automática dos grafos antigos.
+- 21/10/2026: exportar/importar (obliterate-archive) e renomear projeto.

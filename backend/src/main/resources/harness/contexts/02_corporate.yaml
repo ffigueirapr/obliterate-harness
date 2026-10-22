@@ -5,13 +5,12 @@ description: { en: "A company's structured memory for AI: teams and people, clie
                pt: "A memória estruturada da empresa para a IA: equipes e pessoas, clientes e quem os atende, contratos, pricing, produtos habilitados, regras de negócio, integrações, documentos e ida a mercado." }
 icon: "🏢"
 color: "#f5a524"
-narrative: false
 presets: [corporate]
 defaultPreset: corporate
-tabs: [characters, world, analysis]
+tabs: [actors, knowledge, analysis]
 spaceLabels:
-  characters: { en: People & accounts, pt: Pessoas e contas }
-  world: { en: Business & knowledge, pt: Negócio e conhecimento }
+  actors: { en: People & accounts, pt: Pessoas e contas }
+  knowledge: { en: Business & knowledge, pt: Negócio e conhecimento }
   analysis: { en: Analysis, pt: Análise }
 instructions: { en: "Corporate context: you are working with the company's internal knowledge. Be precise, cite the source node or document, treat business rules and contract clauses as binding, and say who owns a topic when the graph does not have the answer.",
                 pt: "Contexto corporativo: você está trabalhando com o conhecimento interno da empresa. Seja preciso, cite o nó ou documento de origem, trate regras de negócio e cláusulas de contrato como vinculantes, e diga quem é dono do assunto quando o grafo não tiver a resposta." }

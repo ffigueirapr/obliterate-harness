@@ -8,7 +8,6 @@ import com.obliterateharness.domain.Criticality;
 import com.obliterateharness.domain.DataType;
 import com.obliterateharness.domain.DomainException;
 import com.obliterateharness.domain.Ids;
-import com.obliterateharness.domain.Manuscript;
 import com.obliterateharness.domain.NodeTypeDef;
 import com.obliterateharness.domain.NotFoundException;
 import com.obliterateharness.domain.ObjectTypeDef;
@@ -20,7 +19,6 @@ import com.obliterateharness.domain.Rigidity;
 import com.obliterateharness.domain.Space;
 import com.obliterateharness.domain.Views;
 import com.obliterateharness.domain.Views.Detail;
-import com.obliterateharness.harness.Reserved;
 import org.neo4j.driver.SimpleQueryRunner;
 import org.neo4j.driver.Value;
 import org.springframework.stereotype.Component;
@@ -39,7 +37,6 @@ import java.util.Set;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
-import static com.obliterateharness.graph.SchemaStore.CONTAINS;
 import static com.obliterateharness.graph.SchemaStore.params;
 import static com.obliterateharness.i18n.I18n.t;
 
@@ -147,8 +144,7 @@ public class ChangeExecutor {
                 for (var e : op.attributes().entrySet()) attrs.put(e.getKey(), resolveValue(e.getValue(), refs, unknown));
             }
             List<String> about = op.about() == null ? null : op.about().stream().map(r).toList();
-            List<String> cast = op.cast() == null ? null : op.cast().stream().map(r).toList();
-            Operation resolved = op.resolved(r, attrs, about, cast);
+            Operation resolved = op.resolved(r, attrs, about);
             if (!unknown.isEmpty()) {
                 errors.put(i, t("alias ", "apelido ") + String.join(", ", unknown)
                         + t(" was not declared in this batch nor earlier in the session (pass sessionId to reuse aliases across batches)",
@@ -270,7 +266,6 @@ public class ChangeExecutor {
         var validator = new AttributeValidator(c.cache::objectType);
         var res = validator.validate(type, op.attributes(), true);
         Map<String, Object> values = new LinkedHashMap<>(res.values());
-        Long words = applyWordCount(type, values);
         Map<String, String> attrMeta = mergeAttrMeta(type, new LinkedHashMap<>(), res, op.attributeCriticality());
 
         Map<String, Object> props = new HashMap<>();
@@ -288,30 +283,14 @@ public class ChangeExecutor {
         props.put("attrs", json.write(values));
         props.put("attrMeta", json.write(attrMeta));
         props.put("attrsText", attrsText(values));
-        putIfNotNull(props, "wordCount", words);
         props.put("version", 1L);
         props.put("createdAt", c.now());
         props.put("updatedAt", c.now());
         props.put("createdBy", c.actor.name());
         props.put("updatedBy", c.actor.name());
 
-        String parentId = null;
-        if (base == BaseKind.Unit) {
-            parentId = op.parent();
-            if (parentId != null) requireUnit(c, parentId, "parent");
-            double order = op.order() != null ? op.order() : nextOrder(c, parentId);
-            if (order < 0) throw new DomainException(t("'order' cannot be negative", "'order' não pode ser negativo"));
-            props.put("order", order);
-            props.put("sortKey", sortKey(c, parentId, order));
-        } else if (op.parent() != null || op.order() != null || op.cast() != null) {
-            throw new DomainException(t("'parent'/'order'/'cast' only apply to types with base Unit (chapter, scene...). '",
-                    "'parent'/'order'/'cast' só valem para tipos com base Unit (capítulo, cena...). '") + type.name() + t("' has base ", "' tem base ") + base);
-        }
-
         c.q.run("CREATE (n:N:" + base.name() + ") SET n = $props", Map.of("props", props)).consume();
-        if (parentId != null) createStructureEdge(c, parentId, op.id());
         writeRefs(c, op.id(), type, res.refs());
-        if (op.cast() != null) setCast(c, op.id(), type, op.cast(), false);
         syncNodeFacts(c, op.id());
         return new OpResult(i, op.op(), "node", op.id(), op.ref(), null, reader.node(c.q, c.p, op.id(), Detail.full));
     }
@@ -336,9 +315,6 @@ public class ChangeExecutor {
             throw new DomainException(t("Changing a node's type is not supported; create a new node and move the relations",
                     "Trocar o tipo de um nó não é suportado; crie um novo nó e migre as relações"));
         }
-        if (op.cast() != null && base != BaseKind.Unit) {
-            throw new DomainException(t("'cast' only applies to units (base Unit)", "'cast' só vale para unidades (base Unit)"));
-        }
 
         Map<String, Object> attrs = new LinkedHashMap<>(before.attributes() == null ? Map.of() : before.attributes());
         Map<String, String> attrMeta = new LinkedHashMap<>(before.attributeCriticality() == null ? Map.of() : before.attributeCriticality());
@@ -350,34 +326,10 @@ public class ChangeExecutor {
                 attrs.remove(k);
                 attrMeta.remove(k);
             }
-            Long words = applyWordCount(type, attrs);
-            set.put("wordCount", words);
             attrMeta = mergeAttrMeta(type, attrMeta, res, op.attributeCriticality());
             set.put("attrs", json.write(attrs));
             set.put("attrMeta", json.write(attrMeta));
             set.put("attrsText", attrsText(attrs));
-        }
-
-        boolean moved = false;
-        if (op.parent() != null || op.order() != null) {
-            if (base != BaseKind.Unit) throw new DomainException(t("'parent'/'order' only apply to types with base Unit", "'parent'/'order' só valem para tipos com base Unit"));
-            String newParent = op.parent() == null ? before.parent() : (op.parent().isBlank() ? null : op.parent());
-            if (newParent != null) {
-                requireUnit(c, newParent, "parent");
-                long cycle = c.q.run("MATCH (n:N {id:$id})-[:R*0..64 {kind:'structure'}]->(d:N {id:$parent}) RETURN count(d) AS c",
-                        params("id", before.id(), "parent", newParent)).single().get("c").asLong();
-                if (cycle > 0) {
-                    throw new DomainException(t("Moving '", "Mover '") + before.name()
-                            + t("' inside one of its descendants would create a cycle", "' para dentro de um descendente criaria um ciclo"));
-                }
-            }
-            if (!Objects.equals(newParent, before.parent())) {
-                c.q.run("MATCH (:N)-[r:R {kind:'structure'}]->(n:N {id:$id}) DELETE r", Map.of("id", before.id())).consume();
-                if (newParent != null) createStructureEdge(c, newParent, before.id());
-            }
-            double order = op.order() != null ? op.order() : (Objects.equals(newParent, before.parent()) ? before.order() : nextOrder(c, newParent));
-            set.put("order", order);
-            moved = true;
         }
 
         set.put("version", before.version() + 1);
@@ -388,14 +340,12 @@ public class ChangeExecutor {
         for (var e : set.entrySet()) {
             if (e.getValue() == null) c.q.run("MATCH (n:N {id:$id}) REMOVE n." + e.getKey(), Map.of("id", before.id())).consume();
         }
-        if (moved) resortSubtree(c, before.id());
         if (res != null) {
             writeRefs(c, before.id(), type, res.refs());
             for (String k : res.removed()) {
                 c.q.run("MATCH (n:N {id:$id})-[r:R {kind:'attr', attrKey:$k}]->() DELETE r", Map.of("id", before.id(), "k", k)).consume();
             }
         }
-        if (op.cast() != null) setCast(c, before.id(), type, op.cast(), true);
         syncNodeFacts(c, before.id());
         return new OpResult(i, op.op(), "node", before.id(), null, before, reader.node(c.q, c.p, before.id(), Detail.full));
     }
@@ -403,12 +353,6 @@ public class ChangeExecutor {
     private OpResult deleteNode(Ctx c, int i, Operation op) {
         Views.Node before = reader.node(c.q, c.p, requireId(op), Detail.full);
         checkVersion(c, op, before.version(), t("node '", "nó '") + before.name() + "'");
-        long children = c.q.run("MATCH (n:N {id:$id})-[:R {kind:'structure'}]->(k:N) RETURN count(k) AS c", Map.of("id", before.id()))
-                .single().get("c").asLong();
-        if (children > 0) {
-            throw new DomainException("'" + before.name() + t("' has ", "' tem ") + children
-                    + t(" child units. Delete or move them first.", " unidades filhas. Apague ou mova os filhos antes."));
-        }
         c.q.run("""
                 MATCH (n:N {id:$id})
                 OPTIONAL MATCH (n)-[r:R]-()
@@ -420,59 +364,10 @@ public class ChangeExecutor {
         return new OpResult(i, op.op(), "node", before.id(), null, before, null);
     }
 
-    /** Recomputes the server-side word count from the manuscript attribute (if the type has one). */
-    private static Long applyWordCount(NodeTypeDef type, Map<String, Object> values) {
-        var text = Manuscript.textAttr(type);
-        if (text.isEmpty()) return null;
-        Object v = values.get(text.get().key());
-        long words = Manuscript.countWords(v instanceof String s ? s : null);
-        Manuscript.wordCountAttr(type).ifPresent(wc -> {
-            if (v != null) values.put(wc.key(), words); else values.remove(wc.key());
-        });
-        return v == null ? null : words;
-    }
-
-    /** Sets the cast of a unit: appears-in relations from each member to the unit. replace=true removes members not listed. */
-    private void setCast(Ctx c, String unitId, NodeTypeDef unitType, List<String> memberIds, boolean replace) {
-        RelTypeDef rt = c.cache.relTypeBySystem(Reserved.APPEARS_IN).orElseThrow(() -> new DomainException(t(
-                "This project has no appears-in relation (system key appears_in); apply a profile (profile_apply) to use 'cast'",
-                "Este projeto não tem a relação de aparição (chave de sistema appears_in); aplique um perfil (profile_apply) para usar 'cast'")));
-        Set<String> wanted = new LinkedHashSet<>(memberIds);
-        requireNodes(c, List.copyOf(wanted));
-        for (String m : wanted) {
-            NodeTypeDef mt = c.cache.requireNodeType(typeIdOf(c, m));
-            if (!rt.allows(mt, unitType)) {
-                throw new DomainException(t("'cast': relation '", "'cast': relação '") + rt.name() + t("' does not allow ", "' não permite ")
-                        + mt.name() + " → " + unitType.name());
-            }
-        }
-        if (replace) {
-            c.q.run("""
-                    MATCH (m:N)-[r:R {relTypeId:$rt}]->(:N {id:$u}) WHERE NOT m.id IN $keep
-                    OPTIONAL MATCH (f:Fact {originId:r.id})
-                    DETACH DELETE f
-                    WITH r DELETE r
-                    """, params("rt", rt.id(), "u", unitId, "keep", List.copyOf(wanted))).consume();
-        }
-        for (String m : wanted) {
-            c.q.run("""
-                    MATCH (m:N {id:$m}), (u:N {id:$u})
-                    WHERE NOT EXISTS { MATCH (m)-[:R {relTypeId:$rt}]->(u) }
-                    CREATE (m)-[:R {id:$id, projectId:$p, relTypeId:$rt, name:$name, base:$base, kind:'rel', criticality:'normal',
-                                    tags:[], version:1, createdAt:$now, updatedAt:$now, createdBy:$actor}]->(u)
-                    """, params("m", m, "u", unitId, "rt", rt.id(), "id", Ids.next("e"), "p", c.p, "name", rt.name(),
-                    "base", rt.relBase().name(), "now", c.now(), "actor", c.actor.name())).consume();
-        }
-    }
-
     // ---------------------------------------------------------------- edges
 
     private OpResult createEdge(Ctx c, int i, Operation op) {
         if (op.relType() == null) throw new DomainException(t("'relType' is required in create_edge", "'relType' é obrigatório em create_edge"));
-        if (CONTAINS.equalsIgnoreCase(op.relType())) {
-            throw new DomainException(t("CONTAINS is the system structure relation; use 'parent' on the unit's create_node/update_node",
-                    "CONTAINS é a relação de estrutura do sistema; use 'parent' no create_node/update_node da unidade"));
-        }
         RelTypeDef rt = c.cache.requireRelType(op.relType());
         if (op.from() == null || op.to() == null) throw new DomainException(t("'from' and 'to' are required in create_edge", "'from' e 'to' são obrigatórios em create_edge"));
         if (op.from().equals(op.to())) throw new DomainException(t("An edge from a node to itself is not allowed", "Aresta de um nó para ele mesmo não é permitida"));
@@ -482,7 +377,7 @@ public class ChangeExecutor {
         NodeTypeDef tb = c.cache.requireNodeType(typeIdOf(c, b.id()));
         if (!rt.allows(ta, tb)) {
             List<String> alternatives = c.cache.allRelTypes().stream()
-                    .filter(x -> !CONTAINS.equals(x.name()) && !x.id().equals(rt.id()) && x.allows(ta, tb))
+                    .filter(x -> !x.id().equals(rt.id()) && x.allows(ta, tb))
                     .map(RelTypeDef::name).sorted().toList();
             String hint = alternatives.isEmpty()
                     ? t(" No relation type allows this pair; adjust one with upsert_rel_type if it makes sense.",
@@ -492,15 +387,11 @@ public class ChangeExecutor {
                     + t(" to ", " para ") + tb.name() + t(". Allowed pairs: ", ". Pares permitidos: ")
                     + rt.allowed().stream().map(e -> e.from() + "→" + e.to()).toList() + "." + hint);
         }
-        validateAnchors(c, op.fromUnit(), op.toUnit());
-        long dup = c.q.run("""
-                MATCH (a:N {id:$a})-[r:R {relTypeId:$rt}]->(b:N {id:$b})
-                WHERE coalesce(r.fromUnit,'') = coalesce($fu,'') AND coalesce(r.toUnit,'') = coalesce($tu,'')
-                RETURN count(r) AS c
-                """, params("a", a.id(), "b", b.id(), "rt", rt.id(), "fu", op.fromUnit(), "tu", op.toUnit())).single().get("c").asLong();
+        long dup = c.q.run("MATCH (a:N {id:$a})-[r:R {relTypeId:$rt}]->(b:N {id:$b}) RETURN count(r) AS c",
+                params("a", a.id(), "b", b.id(), "rt", rt.id())).single().get("c").asLong();
         if (dup > 0) {
             throw new DomainException(t("There is already an edge '", "Já existe aresta '") + rt.name() + t("' from '", "' de '") + a.name()
-                    + t("' to '", "' para '") + b.name() + t("' with the same anchors", "' com as mesmas âncoras"));
+                    + t("' to '", "' para '") + b.name() + "'");
         }
 
         Map<String, Object> props = new HashMap<>();
@@ -513,8 +404,6 @@ public class ChangeExecutor {
         putIfNotNull(props, "description", op.description());
         props.put("criticality", Criticality.parse(op.criticality()).name());
         props.put("tags", normalizeTags(op.tags()));
-        putIfNotNull(props, "fromUnit", blankToNull(op.fromUnit()));
-        putIfNotNull(props, "toUnit", blankToNull(op.toUnit()));
         props.put("version", 1L);
         props.put("createdAt", c.now());
         props.put("updatedAt", c.now());
@@ -528,19 +417,14 @@ public class ChangeExecutor {
     private OpResult updateEdge(Ctx c, int i, Operation op) {
         Views.Edge before = reader.edge(c.q, c.p, requireId(op));
         if (!"rel".equals(before.kind())) {
-            throw new DomainException(t("Structure/attribute edges are edited through the node (parent or attribute)",
-                    "Arestas de estrutura/atributo são editadas pelo nó (parent ou atributo)"));
+            throw new DomainException(t("Attribute edges are edited through the node's node_ref attribute",
+                    "Arestas de atributo são editadas pelo atributo node_ref do nó"));
         }
         checkVersion(c, op, before.version(), t("edge '", "aresta '") + before.relType() + "'");
         Map<String, Object> set = new HashMap<>();
         if (op.description() != null) set.put("description", blankToNull(op.description()));
         if (op.criticality() != null) set.put("criticality", Criticality.parse(op.criticality()).name());
         if (op.tags() != null) set.put("tags", normalizeTags(op.tags()));
-        String fu = op.fromUnit() != null ? blankToNull(op.fromUnit()) : before.fromUnit();
-        String tu = op.toUnit() != null ? blankToNull(op.toUnit()) : before.toUnit();
-        validateAnchors(c, fu, tu);
-        if (op.fromUnit() != null) set.put("fromUnit", fu);
-        if (op.toUnit() != null) set.put("toUnit", tu);
         set.put("version", before.version() + 1);
         set.put("updatedAt", c.now());
         c.q.run("MATCH ()-[r:R {id:$id}]->() SET r += $set", params("id", before.id(), "set", set)).consume();
@@ -554,8 +438,8 @@ public class ChangeExecutor {
     private OpResult deleteEdge(Ctx c, int i, Operation op) {
         Views.Edge before = reader.edge(c.q, c.p, requireId(op));
         if (!"rel".equals(before.kind())) {
-            throw new DomainException(t("Structure/attribute edges are removed through the node (parent or attribute)",
-                    "Arestas de estrutura/atributo são removidas pelo nó (parent ou atributo)"));
+            throw new DomainException(t("Attribute edges are removed through the node's node_ref attribute",
+                    "Arestas de atributo são removidas pelo atributo node_ref do nó"));
         }
         checkVersion(c, op, before.version(), t("edge '", "aresta '") + before.relType() + "'");
         c.q.run("MATCH (f:Fact {originId:$id}) DETACH DELETE f", Map.of("id", before.id())).consume();
@@ -571,10 +455,7 @@ public class ChangeExecutor {
         Rigidity rig = Rigidity.parse(op.rigidity(), crit.defaultRigidity());
         List<String> about = op.about() == null ? List.of() : op.about();
         requireNodes(c, about);
-        String reveal = blankToNull(op.revealAt());
-        if (reveal != null) requireUnit(c, reveal, "revealAt");
         upsertFact(c, op.id(), op.text().trim(), crit, rig, "manual", null, null, about, true);
-        setReveal(c, op.id(), reveal);
         return new OpResult(i, op.op(), "fact", op.id(), op.ref(), null, reader.fact(c.q, c.p, op.id()));
     }
 
@@ -584,8 +465,8 @@ public class ChangeExecutor {
         boolean manual = "manual".equals(before.origin());
         if (!manual && (op.text() != null || op.about() != null || op.criticality() != null)) {
             throw new DomainException(t("Fact mirrored from ", "Fato espelhado de ") + before.origin()
-                    + t(": edit its origin (node/attribute/edge). Only 'rigidity' and 'revealAt' can change here.",
-                    ": edite a origem (nó/atributo/aresta). Aqui só 'rigidity' e 'revealAt' podem mudar."));
+                    + t(": edit its origin (node/attribute/edge). Only 'rigidity' can change here.",
+                    ": edite a origem (nó/atributo/aresta). Aqui só 'rigidity' pode mudar."));
         }
         Criticality crit = op.criticality() != null ? Criticality.parse(op.criticality()) : Criticality.parse(before.criticality());
         Rigidity rig = Rigidity.parse(op.rigidity(), Rigidity.parse(before.rigidity(), crit.defaultRigidity()));
@@ -598,17 +479,7 @@ public class ChangeExecutor {
             c.q.run("MATCH (f:Fact {id:$id}) SET f.rigidity=$r, f.version=f.version+1, f.updatedAt=$now",
                     params("id", before.id(), "r", rig.name(), "now", c.now())).consume();
         }
-        if (op.revealAt() != null) {
-            String reveal = blankToNull(op.revealAt());
-            if (reveal != null) requireUnit(c, reveal, "revealAt");
-            setReveal(c, before.id(), reveal);
-        }
         return new OpResult(i, op.op(), "fact", before.id(), null, before, reader.fact(c.q, c.p, before.id()));
-    }
-
-    private void setReveal(Ctx c, String factId, String unitId) {
-        if (unitId == null) c.q.run("MATCH (f:Fact {id:$id}) REMOVE f.revealAt", Map.of("id", factId)).consume();
-        else c.q.run("MATCH (f:Fact {id:$id}) SET f.revealAt=$u", Map.of("id", factId, "u", unitId)).consume();
     }
 
     private OpResult deleteFact(Ctx c, int i, Operation op) {
@@ -633,7 +504,7 @@ public class ChangeExecutor {
         String base = in.base() != null ? BaseKind.parse(in.base()).name() : (before != null ? before.base() : null);
         if (base == null) {
             throw new DomainException(t("definition.base is required for a new type", "definition.base é obrigatório para um tipo novo")
-                    + " (Agent, Place, Object, Ability, Concept, Event, Unit, Device, Media, Note)");
+                    + " (Agent, Place, Object, Ability, Concept, Event, Media, Note)");
         }
         var other = c.cache.nodeType(name);
         if (other.isPresent() && (before == null || !other.get().id().equals(before.id()))) {
@@ -688,12 +559,6 @@ public class ChangeExecutor {
         RelTypeDef before = existing.orElse(null);
         String name = in.name() != null ? in.name().trim() : (before != null ? before.name() : null);
         if (blank(name)) throw new DomainException(t("definition.name is required", "definition.name é obrigatório"));
-        if (CONTAINS.equalsIgnoreCase(name) && (before == null || !CONTAINS.equals(before.name()))) {
-            throw new DomainException(t("CONTAINS is reserved for the narrative structure", "CONTAINS é reservado para a estrutura narrativa"));
-        }
-        if (before != null && CONTAINS.equals(before.name())) {
-            throw new DomainException(t("CONTAINS is a system relation and cannot be changed", "CONTAINS é uma relação de sistema e não pode ser alterada"));
-        }
         var other = c.cache.relType(name);
         if (other.isPresent() && (before == null || !other.get().id().equals(before.id()))) {
             throw new DomainException(t("There is already a relation type named '", "Já existe um tipo de relação chamado '") + name + "'");
@@ -774,7 +639,6 @@ public class ChangeExecutor {
 
     private OpResult deleteRelType(Ctx c, int i, Operation op) {
         RelTypeDef rt = c.cache.requireRelType(op.id() != null ? op.id() : op.relType());
-        if (CONTAINS.equals(rt.name())) throw new DomainException(t("CONTAINS is a system relation", "CONTAINS é uma relação de sistema"));
         schema.deleteRelType(c.q, rt);
         c.cache.removeRelType(rt);
         return new OpResult(i, op.op(), "rel_type", rt.id(), null, rt, null);
@@ -887,13 +751,6 @@ public class ChangeExecutor {
             return;
         }
         StringBuilder text = new StringBuilder(e.fromName() + " —" + e.relType() + "→ " + e.toName());
-        if (e.fromUnit() != null || e.toUnit() != null) {
-            text.append(" (");
-            if (e.fromUnit() != null) text.append(t("from ", "a partir de ")).append(reader.node(c.q, c.p, e.fromUnit(), Detail.id).name());
-            if (e.fromUnit() != null && e.toUnit() != null) text.append(", ");
-            if (e.toUnit() != null) text.append(t("until ", "até ")).append(reader.node(c.q, c.p, e.toUnit(), Detail.id).name());
-            text.append(")");
-        }
         if (e.description() != null) text.append(": ").append(e.description());
         upsertFact(c, id, text.toString(), ec, null, "edge", edgeId, null, List.of(e.from(), e.to()), false);
     }
@@ -973,60 +830,6 @@ public class ChangeExecutor {
                     CREATE (n)-[:R {id:'e_' + $id + '_' + $k + '_' + tid, projectId:$p, kind:'attr', attrKey:$k, name:$k,
                                     base:'REFERENCE', criticality:'normal', version:1, createdAt:$now}]->(t)
                     """, params("targets", ref.targetIds(), "id", nodeId, "k", ref.attrKey(), "p", c.p, "now", c.now())).consume();
-        }
-    }
-
-    private void createStructureEdge(Ctx c, String parentId, String childId) {
-        c.q.run("""
-                MATCH (p:N {id:$parent}), (n:N {id:$child})
-                CREATE (p)-[:R {id:'e_s_' + $child, projectId:$p, kind:'structure', name:'CONTAINS', base:'STRUCTURE',
-                                criticality:'normal', version:1, createdAt:$now}]->(n)
-                """, params("parent", parentId, "child", childId, "p", c.p, "now", c.now())).consume();
-    }
-
-    private double nextOrder(Ctx c, String parentId) {
-        Value v = parentId == null
-                ? c.q.run("MATCH (n:N:Unit {projectId:$p}) WHERE NOT ()-[:R {kind:'structure'}]->(n) RETURN max(n.order) AS m", Map.of("p", c.p)).single().get("m")
-                : c.q.run("MATCH (:N {id:$id})-[:R {kind:'structure'}]->(k:N) RETURN max(k.order) AS m", Map.of("id", parentId)).single().get("m");
-        return v.isNull() ? 1 : Math.floor(v.asDouble()) + 1;
-    }
-
-    private String sortKey(Ctx c, String parentId, double order) {
-        String own = String.format(Locale.ROOT, "%012.3f", order);
-        if (parentId == null) return own;
-        String pk = c.q.run("MATCH (n:N {id:$id}) RETURN n.sortKey AS k", Map.of("id", parentId)).single().get("k").asString();
-        return pk + "." + own;
-    }
-
-    private void resortSubtree(Ctx c, String nodeId) {
-        var row = c.q.run("""
-                MATCH (n:N {id:$id}) OPTIONAL MATCH (p:N)-[:R {kind:'structure'}]->(n)
-                RETURN n.order AS o, p.id AS parent
-                """, Map.of("id", nodeId)).single();
-        String parent = row.get("parent").isNull() ? null : row.get("parent").asString();
-        String key = sortKey(c, parent, row.get("o").asDouble());
-        c.q.run("MATCH (n:N {id:$id}) SET n.sortKey=$k", Map.of("id", nodeId, "k", key)).consume();
-        var kids = c.q.run("MATCH (:N {id:$id})-[:R {kind:'structure'}]->(k:N) RETURN k.id AS id", Map.of("id", nodeId)).list(r -> r.get("id").asString());
-        for (String k : kids) resortSubtree(c, k);
-    }
-
-    private void requireUnit(Ctx c, String id, String field) {
-        Views.Node n = reader.node(c.q, c.p, id, Detail.summary);
-        if (!BaseKind.Unit.name().equals(n.base())) {
-            throw new DomainException("'" + field + t("' must be a narrative unit (base Unit); '", "' deve ser uma unidade narrativa (base Unit); '")
-                    + n.name() + t("' has base ", "' é base ") + n.base());
-        }
-    }
-
-    private void validateAnchors(Ctx c, String fromUnit, String toUnit) {
-        String fu = blankToNull(fromUnit), tu = blankToNull(toUnit);
-        if (fu != null) requireUnit(c, fu, "fromUnit");
-        if (tu != null) requireUnit(c, tu, "toUnit");
-        if (fu != null && tu != null) {
-            var keys = c.q.run("MATCH (a:N {id:$a}), (b:N {id:$b}) RETURN a.sortKey AS ka, b.sortKey AS kb", Map.of("a", fu, "b", tu)).single();
-            if (keys.get("ka").asString().compareTo(keys.get("kb").asString()) > 0) {
-                throw new DomainException(t("fromUnit comes after toUnit in the narrative", "fromUnit vem depois de toUnit na narrativa"));
-            }
         }
     }
 

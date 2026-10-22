@@ -2,6 +2,7 @@ package com.obliterateharness.harness;
 
 import com.obliterateharness.domain.Actor;
 import com.obliterateharness.graph.Graph;
+import com.obliterateharness.graph.JsonCodec;
 import com.obliterateharness.i18n.I18n;
 import com.obliterateharness.i18n.Lang;
 import com.obliterateharness.service.ProjectService;
@@ -12,68 +13,140 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * Brings projects created by older versions up to date. Idempotent and additive only:
+ * Brings graphs written by older versions up to date. Idempotent: running it again changes nothing.
  * <ol>
  *   <li>projects without a locale are Portuguese (they were created with the Portuguese packs);</li>
- *   <li>engine types/relations get their system key, found by their old names;</li>
- *   <li>projects with a known profile get what the packs gained (e.g. the about relation, clues in plants/pays,
- *       scene location) — recorded as a changeset by "system".</li>
+ *   <li>the narrative layer is removed (the platform became domain-neutral): the CONTAINS structure relation and its
+ *       edges, unit order/word counts, time anchors on edges, secret reveal points on facts, style settings on projects,
+ *       narrative system keys, and attribute roles/data types only the narrative engine used;</li>
+ *   <li>nodes of the removed base kinds become ordinary ones (Unit → Note, Device → Concept), and relation types of the
+ *       removed bases (STRUCTURE, SETUP_PAYOFF) become REFERENCE, so no data is lost;</li>
+ *   <li>graph spaces get their new names (world → knowledge, characters → actors, story → knowledge, templates → analysis);</li>
+ *   <li>projects that belonged to no context (the old narrative ones) move to a "Legacy projects" context, so they stay
+ *       visible in the interface; it is created only when there is something to move.</li>
  * </ol>
  */
 @Component
 @Order(10)
 public class StartupMigration implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(StartupMigration.class);
-    static final int SCHEMA_VERSION = 2;
+
+    private static final Map<String, String> SPACES = Map.of("world", "knowledge", "characters", "actors", "story", "knowledge", "templates", "analysis");
+    private static final Map<String, String> BASES = Map.of("Unit", "Note", "Device", "Concept");
+    private static final Set<String> NARRATIVE_ROLES = Set.of("manuscript", "word_count", "location", "secret");
+    private static final List<String> NARRATIVE_SYSTEM_KEYS = List.of("template", "beat", "thread", "beat_of", "maps_to_beat",
+            "plants", "pays", "about", "appears_in", "located_in");
 
     private final Graph graph;
+    private final JsonCodec json;
     private final ProjectService projects;
-    private final ProfileService profiles;
-    private final HarnessLibrary library;
+    private final ContextService contexts;
 
-    public StartupMigration(Graph graph, ProjectService projects, ProfileService profiles, HarnessLibrary library) {
+    public StartupMigration(Graph graph, JsonCodec json, ProjectService projects, ContextService contexts) {
         this.graph = graph;
+        this.json = json;
         this.projects = projects;
-        this.profiles = profiles;
-        this.library = library;
+        this.contexts = contexts;
     }
 
     @Override
     public void run(ApplicationArguments args) {
+        Map<String, Long> done = new LinkedHashMap<>();
         graph.write(tx -> {
-            long locales = tx.run("MATCH (p:Project) WHERE p.locale IS NULL SET p.locale = 'pt' RETURN count(p) AS c").single().get("c").asLong();
-            long nodeKeys = tx.run("""
-                    MATCH (t:NodeType) WHERE t.systemKey IS NULL AND t.nameLower IN keys($m)
-                    WITH t, $m[t.nameLower] AS key
-                    WHERE NOT EXISTS { MATCH (o:NodeType {projectId:t.projectId, systemKey:key}) }
-                    SET t.systemKey = key RETURN count(t) AS c
-                    """, Map.of("m", Reserved.LEGACY_NODE_TYPES)).single().get("c").asLong();
-            long relKeys = tx.run("""
-                    MATCH (t:RelType) WHERE t.systemKey IS NULL AND t.nameLower IN keys($m)
-                    WITH t, $m[t.nameLower] AS key
-                    WHERE NOT EXISTS { MATCH (o:RelType {projectId:t.projectId, systemKey:key}) }
-                    SET t.systemKey = key RETURN count(t) AS c
-                    """, Map.of("m", Reserved.LEGACY_REL_TYPES)).single().get("c").asLong();
-            if (locales + nodeKeys + relKeys > 0) log.info("Migration: {} locales, {} node system keys, {} relation system keys", locales, nodeKeys, relKeys);
+            done.put("locales", count(tx, "MATCH (p:Project) WHERE p.locale IS NULL SET p.locale = 'pt' RETURN count(p) AS c"));
+            done.put("structureEdges", count(tx, "MATCH ()-[r:R {kind:'structure'}]->() DELETE r RETURN count(*) AS c"));
+            done.put("containsRelTypes", count(tx, "MATCH (t:RelType) WHERE t.name = 'CONTAINS' DETACH DELETE t RETURN count(*) AS c"));
+            done.put("unitFields", count(tx, """
+                    MATCH (n:N) WHERE n.sortKey IS NOT NULL OR n.order IS NOT NULL OR n.wordCount IS NOT NULL
+                    REMOVE n.sortKey, n.order, n.wordCount RETURN count(n) AS c"""));
+            done.put("edgeAnchors", count(tx, """
+                    MATCH ()-[r:R]->() WHERE r.fromUnit IS NOT NULL OR r.toUnit IS NOT NULL
+                    REMOVE r.fromUnit, r.toUnit RETURN count(r) AS c"""));
+            done.put("factReveals", count(tx, "MATCH (f:Fact) WHERE f.revealAt IS NOT NULL REMOVE f.revealAt RETURN count(f) AS c"));
+            done.put("styleSettings", count(tx, """
+                    MATCH (p:Project) WHERE p.styleSample IS NOT NULL OR p.styleReference IS NOT NULL
+                    REMOVE p.styleSample, p.styleReference RETURN count(p) AS c"""));
+            done.put("systemKeys", count(tx, """
+                    MATCH (t) WHERE (t:NodeType OR t:RelType) AND t.systemKey IN $keys
+                    REMOVE t.systemKey RETURN count(t) AS c""", Map.of("keys", NARRATIVE_SYSTEM_KEYS)));
+            long bases = 0;
+            for (var e : BASES.entrySet()) {
+                bases += count(tx, "MATCH (n:N:" + e.getKey() + ") REMOVE n:" + e.getKey() + " SET n:" + e.getValue()
+                        + ", n.base = $to RETURN count(n) AS c", Map.of("to", e.getValue()));
+                bases += count(tx, "MATCH (t:NodeType {base:$from}) SET t.base = $to RETURN count(t) AS c", Map.of("from", e.getKey(), "to", e.getValue()));
+            }
+            done.put("baseKinds", bases);
+            done.put("relBases", count(tx, """
+                    MATCH (t:RelType) WHERE t.base IN ['STRUCTURE', 'SETUP_PAYOFF'] SET t.base = 'REFERENCE' RETURN count(t) AS c"""));
+            count(tx, "MATCH ()-[r:R {kind:'rel'}]->() WHERE r.base IN ['STRUCTURE', 'SETUP_PAYOFF'] SET r.base = 'REFERENCE' RETURN count(r) AS c");
+            done.put("relEndpoints", count(tx, """
+                    MATCH (t:RelType) WHERE t.allowed CONTAINS '"@Unit"' OR t.allowed CONTAINS '"@Device"'
+                    SET t.allowed = replace(replace(t.allowed, '"@Unit"', '"@Note"'), '"@Device"', '"@Concept"')
+                    RETURN count(t) AS c"""));
+            done.put("attributeDefs", migrateAttributes(tx));
+            long spaces = 0;
+            for (var e : SPACES.entrySet()) {
+                spaces += count(tx, "MATCH (n:N {space:$from}) SET n.space = $to RETURN count(n) AS c", Map.of("from", e.getKey(), "to", e.getValue()));
+            }
+            done.put("spaces", spaces);
             return null;
         });
-        var pending = graph.read(tx -> tx.run("""
-                MATCH (p:Project) WHERE coalesce(p.harnessSchema, 1) < $v RETURN p.id AS id, p.profile AS profile, p.locale AS locale
-                """, Map.of("v", SCHEMA_VERSION)).list(r -> new String[]{r.get("id").asString(), r.get("profile").asString(null), r.get("locale").asString(null)}));
-        for (String[] p : pending) {
-            Lang lang = Lang.parse(p[2], Lang.pt);
-            try {
-                if (p[1] != null && library.profile(p[1], lang).isPresent()) {
-                    I18n.with(lang, () -> profiles.apply(p[0], p[1], Actor.system));
+        done.put("projectsWithoutContext", adoptOrphans());
+        done.values().removeIf(v -> v == 0);
+        if (!done.isEmpty()) log.info("Migration to the domain-neutral graph: {}", done);
+    }
+
+    /** Projects with no context (created before contexts existed) move to a "Legacy projects" context. */
+    private long adoptOrphans() {
+        var orphans = projects.list().stream().filter(p -> p.context() == null).toList();
+        if (orphans.isEmpty()) return 0;
+        var ctx = I18n.with(Lang.pt, () -> contexts.create("Projetos legados",
+                "Projetos criados antes dos contextos, trazidos para cá pela migração. Mova-os ou recrie-os num contexto que faça sentido.",
+                "🗄️", null, "pt", null, null, null, Actor.system));
+        for (var p : orphans) projects.setContext(p.id(), ctx.id(), false);
+        return orphans.size();
+    }
+
+    /** Drops narrative-only roles and turns story_time attributes into plain short strings (values are kept). */
+    private long migrateAttributes(org.neo4j.driver.SimpleQueryRunner tx) {
+        var rows = tx.run("MATCH (t:NodeType) WHERE t.attributes CONTAINS '\"role\"' OR t.attributes CONTAINS 'story_time' "
+                + "RETURN t.id AS id, t.attributes AS attrs").list();
+        long changed = 0;
+        for (var r : rows) {
+            List<Map<String, Object>> attrs = json.convert(json.readList(r.get("attrs").asString("[]"), Object.class),
+                    new tools.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+            boolean touched = false;
+            for (Map<String, Object> a : attrs) {
+                if (a.get("role") instanceof String role && NARRATIVE_ROLES.contains(role)) {
+                    a.remove("role");
+                    touched = true;
                 }
-                graph.write(tx -> tx.run("MATCH (x:Project {id:$id}) SET x.harnessSchema = $v", Map.of("id", p[0], "v", SCHEMA_VERSION)).consume());
-            } catch (RuntimeException e) {
-                log.warn("Migration of project {} failed (it keeps working with its current schema): {}", p[0], e.getMessage());
+                for (String k : List.of("dataType", "itemType")) {
+                    if ("story_time".equalsIgnoreCase(String.valueOf(a.get(k)))) {
+                        a.put(k, "string_short");
+                        touched = true;
+                    }
+                }
+            }
+            if (touched) {
+                tx.run("MATCH (t:NodeType {id:$id}) SET t.attributes = $a", Map.of("id", r.get("id").asString(), "a", json.write(attrs))).consume();
+                changed++;
             }
         }
-        if (!pending.isEmpty()) log.info("Migration: {} project(s) brought to harness schema {}", pending.size(), SCHEMA_VERSION);
+        return changed;
+    }
+
+    private static long count(org.neo4j.driver.SimpleQueryRunner tx, String cypher) {
+        return count(tx, cypher, Map.of());
+    }
+
+    private static long count(org.neo4j.driver.SimpleQueryRunner tx, String cypher, Map<String, Object> params) {
+        return tx.run(cypher, params).single().get("c").asLong();
     }
 }

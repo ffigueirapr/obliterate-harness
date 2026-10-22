@@ -91,13 +91,22 @@ public class ProjectService {
 
     /** Updates settings. Locale is not changed here: use localization, which also converts the schema. */
     public Views.Project update(String id, String name, String description, String profile, Boolean requireReviewForLlm) {
-        get(id);
+        var current = get(id);
+        String newName = name == null ? null : name.trim();
+        if (newName != null) {
+            if (newName.isEmpty()) throw new DomainException(t("Project name cannot be empty", "O nome do projeto não pode ficar vazio"));
+            String wanted = newName;
+            if (!Boolean.TRUE.equals(current.blueprint())
+                    && list().stream().anyMatch(p -> !p.id().equals(id) && p.name().trim().equalsIgnoreCase(wanted))) {
+                throw new DomainException(t("There is already a project named '", "Já existe um projeto chamado '") + wanted + "'");
+            }
+        }
         graph.write(tx -> {
             tx.run("""
                     MATCH (p:Project {id:$id})
                     SET p.name = coalesce($name, p.name), p.description = coalesce($description, p.description),
                         p.profile = coalesce($profile, p.profile), p.requireReviewForLlm = coalesce($review, p.requireReviewForLlm)
-                    """, params("id", id, "name", name, "description", description, "profile", profile, "review", requireReviewForLlm)).consume();
+                    """, params("id", id, "name", newName, "description", description, "profile", profile, "review", requireReviewForLlm)).consume();
             return null;
         });
         return get(id);

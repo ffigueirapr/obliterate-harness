@@ -275,3 +275,10 @@ export interface LocalizeReport {
   untouched?: string[];
   notes?: string[];
 }
+
+/** Result of POST /api/import (obliterate-archive). */
+export interface ImportResult {
+  projects: { sourceId: string; projectId: string; name: string; context?: string; counts?: Record<string, number> }[];
+  contexts?: { sourceId: string; contextId: string; name: string; action: 'created' | 'existing' | 'matched' }[];
+  notes?: string[];
+}

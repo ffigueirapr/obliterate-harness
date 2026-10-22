@@ -1,5 +1,5 @@
 import type {
-  AuditEntry, ChangesetRow, CloneResult, ContextView, Directive, Fact, FocusResult, GEdge, GNode, IndirectLink, LocalizeReport, NodeDetail,
+  AuditEntry, ChangesetRow, CloneResult, ContextView, Directive, Fact, FocusResult, GEdge, GNode, ImportResult, IndirectLink, LocalizeReport, NodeDetail,
   Operation, ProfileSummary, Project, Proposal, Schema, ViewFilter, ViewResult,
 } from './types';
 import { lang } from './i18n';
@@ -75,4 +75,17 @@ export const api = {
   presets: () => call<ProfileSummary[]>('GET', '/api/harness/presets'),
   applyPreset: (pid: string, profileId: string) => call<Proposal>('POST', `/api/projects/${pid}/preset/apply`, { profileId }),
   directives: (pid: string) => call<Directive[]>('GET', `/api/projects/${pid}/directives`),
+
+  /** obliterate-archive download: one project, or everything when no id */
+  archiveUrl: (pid?: string) => (pid ? `/api/projects/${pid}/export` : '/api/export'),
+  importArchive: async (file: File, opts: { recreateContexts?: boolean; name?: string } = {}) => {
+    const body = new FormData();
+    body.append('file', file);
+    const res = await fetch(`/api/import${qs({ recreateContexts: opts.recreateContexts === undefined ? undefined : String(opts.recreateContexts), name: opts.name })}`,
+      { method: 'POST', headers: { 'x-lang': lang() }, body });
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : null;
+    if (!res.ok) throw new ApiError(data?.detail ?? `${res.status} ${res.statusText}`);
+    return data as ImportResult;
+  },
 };

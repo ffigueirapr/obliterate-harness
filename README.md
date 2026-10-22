@@ -96,6 +96,59 @@ node scripts/smoke_foco.mjs
 node scripts/smoke_contexts.mjs
 ```
 
+```bash
+node scripts/smoke_archive.mjs
+```
+
+## Exportar e importar (backup e migração)
+
+Um projeto, ou tudo, vira um único JSON versionado que outra instância (ou outra plataforma) consegue ler.
+
+| Onde | Exportar | Importar |
+|---|---|---|
+| Interface | botão **Exportar** no painel do projeto; **Exportar tudo** na tela inicial | botão **Importar…** na tela inicial, na tela do contexto e no projeto |
+| REST | `GET /api/projects/{pid}/export` (um projeto) · `GET /api/export` (tudo) | `POST /api/import` (multipart, campo `file`, ou o JSON no corpo) |
+| MCP | `project_export` (`projectId` ou `all=true`) | `project_import` (`archive` = texto do JSON) |
+
+Importar sempre cria projetos **novos** (ids novos, todas as referências internas remapeadas: arestas, fatos, atributos `node_ref`). Se o nome já existir, ganha um sufixo ` (2)`; `?name=` dá outro nome a um arquivo de um projeto só. Contextos personalizados que não existem na instância são recriados a partir do arquivo (`recreateContexts`, padrão `true`); se já houver um contexto com o mesmo id ou o mesmo nome, ele é reaproveitado sem alteração. Formato ou versão inválidos, ou referências quebradas, falham com a mensagem do problema e nada é gravado (o grafo é escrito numa transação só).
+
+No MCP, `project_export` devolve um resumo (contagens e `downloadUrl`); o JSON vem junto só se tiver até ~200 KB (`inline=false` desliga). Arquivos maiores: baixar do `downloadUrl`.
+
+Formato (`version` 1):
+
+```json
+{
+  "format": "obliterate-archive", "version": 1, "exportedAt": "2026-10-21T12:00:00Z", "generator": "obliterate-harness",
+  "scope": "project | all",
+  "contexts": [
+    { "id": "corporate", "kind": "builtin", "name": "Corporativo" },
+    { "id": "ctx_…", "kind": "custom", "name": "…", "description": "…", "icon": "💳", "locale": "pt", "baseContext": "corporate",
+      "instructions": "…", "spaceLabels": {}, "tabs": [], "definition": { "…mesmo formato de um projeto…" } }
+  ],
+  "projects": [{
+    "id": "p_…", "name": "…", "description": "…", "context": "ctx_…", "locale": "pt", "profile": "corporate", "createdAt": "…",
+    "settings": { "requireReviewForLlm": false },
+    "schema": { "nodeTypes": [{ "id": "nt_…", "name": "…", "base": "Agent", "attributes": [{ "key": "…", "dataType": "node_ref", "refType": "…" }] }],
+                "relTypes": [{ "id": "rt_…", "name": "…", "base": "SOCIAL", "allowed": [{ "from": "@Agent", "to": "Equipe" }] }],
+                "objectTypes": [] },
+    "nodes": [{ "id": "n_…", "typeId": "nt_…", "type": "…", "base": "Agent", "space": "…", "name": "…", "summary": "…", "tags": [],
+                "criticality": "normal", "attributes": {}, "refs": { "dono": ["n_…"] }, "attributeCriticality": {}, "version": 3, "extra": {} }],
+    "edges": [{ "id": "e_…", "kind": "rel | attr", "relTypeId": "rt_…", "relType": "…", "from": "n_…", "to": "n_…",
+                "attrKey": null, "description": "…", "criticality": "critical", "tags": [], "version": 1 }],
+    "facts": [{ "id": "f_…", "text": "…", "rigidity": "law", "criticality": "foundational", "originKind": "manual | node | attr | edge",
+                "originId": "…", "about": ["n_…"] }],
+    "directives": [{ "id": "dr_…", "text": "…", "when": ["context"], "bases": [], "types": [], "priority": 0, "enabled": true }],
+    "counts": { "nodes": 0, "edges": 0, "facts": 0, "directives": 0 }
+  }]
+}
+```
+
+- Ids no arquivo são os originais. Os atributos são JSON comum; atributos `node_ref` aparecem em `refs` (visão de leitura) e são reconstruídos a partir das arestas `kind: "attr"`.
+- Fatos espelhados (`originKind` ≠ `manual`) vêm da criticidade do nó/atributo/aresta de origem e seguem o novo id dela.
+- `extra` guarda propriedades que esta versão não nomeia, para nada se perder na ida e volta.
+- `space` vai como está gravado (o servidor aceita os nomes antigos como apelidos no import).
+- Não vão no arquivo: changesets, auditoria e sessões, nem nada da camada narrativa: tipos com base `Unit` e seus nós, a relação `CONTAINS` e a estrutura (`parent`/`order`), âncoras `fromUnit`/`toUnit`, `revealAt`, `styleSample`/`styleReference`, atributos com papel `manuscript`/`word_count`/`location`/`secret` ou tipo `story_time`, textos de unidade e templates. Um arquivo antigo que traga esses campos é importado sem eles (com uma nota); uma base que esta plataforma não tem vira `Object`.
+
 ## Conectar a LLM
 
 ```bash
@@ -110,3 +163,4 @@ O projeto nasceu como spin-off da Harness Machine, uma plataforma de roteiro e c
 
 - Criado em 19/10/2026; atualizado em 19/10/2026 com a conclusão da fase 0 e com os contextos (tela inicial, contexto corporativo, contextos criados por pessoas e LLMs).
 - 21/10/2026: removida a camada narrativa; espaços renomeados; prompts MCP genéricos; migração automática dos grafos antigos.
+- 21/10/2026: exportar/importar (obliterate-archive) e renomear projeto.

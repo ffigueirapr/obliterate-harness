@@ -4,6 +4,8 @@ import type { ContextView, Project } from '../types';
 import { spaceLabel } from '../types';
 import { lang, t } from '../i18n';
 import { LocaleSelect, Modal } from './Dialogs';
+import { ArchiveActions, RenameButton, RenameInput } from './Archive';
+import type { ImportResult } from '../types';
 
 const SPACES = ['world', 'characters', 'story', 'analysis', 'templates'];
 const ICONS = ['🏢', '💳', '🤝', '⚖️', '🧪', '🏥', '🛒', '🎓', '🛠️', '📚', '🌍', '🎮', '📖', '🧩'];
@@ -13,8 +15,8 @@ export const ctxSpaceLabel = (ctx: ContextView | undefined, space: string) => ct
 
 // ------------------------------------------------------------------ home: choose or create a context
 
-export function ContextHome({ contexts, onOpen, onCreate }: {
-  contexts: ContextView[]; onOpen: (id: string) => void; onCreate: () => void;
+export function ContextHome({ contexts, onOpen, onCreate, onImported }: {
+  contexts: ContextView[]; onOpen: (id: string) => void; onCreate: () => void; onImported?: (r: ImportResult) => void;
 }) {
   return (
     <div className="home">
@@ -23,6 +25,7 @@ export function ContextHome({ contexts, onOpen, onCreate }: {
         <p className="muted">{t(
           'A context is a domain the platform runs: which kinds of nodes exist, how they relate, which rules are binding and how the AI must behave. Projects live inside a context, and any Claude connected through MCP can use them.',
           'Um contexto é um domínio que a plataforma roda: que tipos de nó existem, como se relacionam, quais regras são vinculantes e como a IA deve se comportar. Os projetos vivem dentro de um contexto, e qualquer Claude conectado via MCP pode usá-los.')}</p>
+        {onImported && <div className="row" style={{ gap: 6, justifyContent: 'flex-start' }}><ArchiveActions onImported={onImported} /></div>}
       </div>
       <div className="cards">
         {contexts.map((c) => (
@@ -50,11 +53,13 @@ export function ContextHome({ contexts, onOpen, onCreate }: {
 
 // ------------------------------------------------------------------ one context: its projects and definition
 
-export function ContextPage({ ctx, projects, onOpenProject, onNewProject, onEditDefinition, onSettings, onDerive, onBack }: {
+export function ContextPage({ ctx, projects, onOpenProject, onNewProject, onEditDefinition, onSettings, onDerive, onBack, onRenamed, onImported, onError }: {
   ctx: ContextView; projects: Project[];
   onOpenProject: (id: string) => void; onNewProject: () => void; onEditDefinition: () => void; onSettings: () => void;
   onDerive: () => void; onBack: () => void;
+  onRenamed?: (p: Project) => void; onImported?: (r: ImportResult) => void; onError?: (msg: string) => void;
 }) {
+  const [renaming, setRenaming] = useState<string | null>(null);
   return (
     <div className="home">
       <div className="home-head">
@@ -74,6 +79,7 @@ export function ContextPage({ ctx, projects, onOpenProject, onNewProject, onEdit
             <button className="fixed" onClick={onDerive} title={t('Built-in contexts are read-only: create your own copy and adapt it',
               'Contextos embutidos são somente leitura: crie a sua cópia e adapte')}>⎘ {t('Customize (create a context based on this)', 'Personalizar (criar um contexto baseado neste)')}</button>
           )}
+          {onImported && <ArchiveActions onImported={onImported} />}
         </div>
       </div>
 
@@ -85,12 +91,17 @@ export function ContextPage({ ctx, projects, onOpenProject, onNewProject, onEdit
           ) : (
             <div className="cards small-cards">
               {projects.map((p) => (
-                <button key={p.id} className="ctx-card proj" onClick={() => onOpenProject(p.id)}>
+                <div key={p.id} className="proj-wrap">
+                <button className="ctx-card proj" onClick={() => onOpenProject(p.id)}>
                   <span className="ctx-name">{p.name}</span>
                   {p.description && <span className="ctx-desc">{p.description}</span>}
                   <span className="ctx-meta">{(p.locale ?? 'pt').toUpperCase()}{p.profile && ctx.presets && ctx.presets.length > 1 ? ` · ${ctx.presets.find((x) => x.id === p.profile)?.name ?? p.profile}` : ''}
                     {p.createdAt && ` · ${p.createdAt.slice(0, 10)}`}</span>
                 </button>
+                {onRenamed && (renaming === p.id
+                  ? <RenameInput project={p} onError={(m) => onError?.(m)} onDone={(np) => { setRenaming(null); if (np) onRenamed(np); }} />
+                  : <RenameButton onClick={() => setRenaming(p.id)} />)}
+                </div>
               ))}
             </div>
           )}

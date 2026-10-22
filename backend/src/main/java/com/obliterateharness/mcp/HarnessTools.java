@@ -8,6 +8,7 @@ import com.obliterateharness.graph.Graph;
 import com.obliterateharness.graph.GraphReader;
 import com.obliterateharness.graph.GraphReader.NodeFilter;
 import com.obliterateharness.graph.SchemaStore;
+import com.obliterateharness.harness.ArchiveService;
 import com.obliterateharness.harness.CloneService;
 import com.obliterateharness.harness.ContextService;
 import com.obliterateharness.harness.ExportService;
@@ -69,12 +70,13 @@ public class HarnessTools {
     private final CloneService cloner;
     private final LocalizationService localization;
     private final ContextService contexts;
+    private final ArchiveService archives;
     private final String publicUrl;
 
     public HarnessTools(ProjectService projects, SessionService sessions, ChangesetService changesets, Graph graph, GraphReader reader,
                         SchemaStore schema, HarnessLibrary library, ProfileService profiles, TemplateService templates, NarrativeService narrative,
                         GuidanceService guidance, UnitService units, ExportService export, CloneService cloner, LocalizationService localization,
-                        ContextService contexts,
+                        ContextService contexts, ArchiveService archives,
                         @Value("${harness.public-url:http://localhost:8080}") String publicUrl) {
         this.projects = projects;
         this.sessions = sessions;
@@ -92,6 +94,7 @@ public class HarnessTools {
         this.cloner = cloner;
         this.localization = localization;
         this.contexts = contexts;
+        this.archives = archives;
         this.publicUrl = publicUrl;
     }
 
@@ -210,6 +213,59 @@ public class HarnessTools {
             @McpToolParam(description = "Id of a reference project for style", required = false) String styleReference,
             @McpToolParam(description = "New description", required = false) String description) {
         return in(projectId, () -> projects.update(projectId, null, description, null, null, styleSample, styleReference));
+    }
+
+    @McpTool(name = "project_update", description = "Renames a project and/or changes its description. Only do it if the user asked. "
+            + "The name must not be empty nor repeat another project's name.")
+    public Views.Project projectUpdate(
+            @McpToolParam(description = "Project id") String projectId,
+            @McpToolParam(description = "New name", required = false) String name,
+            @McpToolParam(description = "New description", required = false) String description) {
+        return in(projectId, () -> projects.update(projectId, name, description, null, null));
+    }
+
+    /**
+     * @param archive     the obliterate-archive JSON, when it is small enough to come inline
+     * @param downloadUrl always: GET it to have the whole file (also what to keep as a backup)
+     */
+    public record ArchiveExportResult(String format, int version, String scope, String filename, int bytes, List<ArchiveSummary> projects,
+                                      List<String> contexts, String archive, String downloadUrl, String note) {}
+
+    public record ArchiveSummary(String id, String name, String context, Map<String, Integer> counts) {}
+
+    @McpTool(name = "project_export", description = "Exports one project (projectId) or every project (all=true) to an obliterate-archive JSON "
+            + "(versioned format: contexts with their definition, project metadata and settings, schema, nodes, edges, facts, directives; ids preserved). "
+            + "For backup or migration to another instance. Returns a summary with counts and a downloadUrl; the archive itself comes inline "
+            + "only when it is small (up to ~200 KB) and inline is not false. Re-import with project_import.")
+    public ArchiveExportResult projectExport(
+            @McpToolParam(description = "Project id (omit with all=true)", required = false) String projectId,
+            @McpToolParam(description = "Export every project and custom context", required = false) Boolean all,
+            @McpToolParam(description = "Return the archive inline when small (default true); false = summary and URL only", required = false) Boolean inline) {
+        boolean everything = Boolean.TRUE.equals(all);
+        if (!everything && (projectId == null || projectId.isBlank())) {
+            throw new com.obliterateharness.domain.DomainException(I18n.t("Pass projectId, or all=true", "Informe projectId, ou all=true"));
+        }
+        var a = everything ? archives.exportAll() : in(projectId, () -> archives.exportProject(projectId));
+        String text = archives.toJson(a);
+        int bytes = text.getBytes(StandardCharsets.UTF_8).length;
+        boolean give = (inline == null || inline) && bytes <= 200_000;
+        String url = publicUrl + (everything ? "/api/export" : "/api/projects/" + projectId + "/export");
+        return new ArchiveExportResult(a.format(), a.version(), a.scope(), ArchiveService.filename(a), bytes,
+                a.projects().stream().map(p -> new ArchiveSummary(p.id(), p.name(), p.context(), p.counts())).toList(),
+                a.contexts().stream().map(c -> c.id() + " (" + c.kind() + ")").toList(), give ? text : null, url,
+                give ? null : I18n.t("Archive too large to return inline: download it from downloadUrl.",
+                        "Arquivo grande demais para vir inline: baixe de downloadUrl."));
+    }
+
+    @McpTool(name = "project_import", description = "Imports an obliterate-archive JSON (from project_export or GET /api/export) as NEW projects: "
+            + "new ids, every internal reference remapped. Custom contexts missing here are recreated from the archive (recreateContexts, "
+            + "default true). All or nothing: an invalid archive (format/version) fails with the reason and nothing is written. "
+            + "Only import if the user asked.")
+    public ArchiveService.ImportResult projectImport(
+            @McpToolParam(description = "The archive JSON text") String archive,
+            @McpToolParam(description = "Recreate missing custom contexts from the archive; default true", required = false) Boolean recreateContexts,
+            @McpToolParam(description = "New name for the project (single-project archives)", required = false) String name) {
+        return archives.importArchive(archives.parse(archive), new ArchiveService.ImportOptions(recreateContexts, name), Actor.llm);
     }
 
     @McpTool(name = "session_begin", description = "ALWAYS call first when starting work on a project. Opens a work session and returns the briefing: "

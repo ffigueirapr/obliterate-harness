@@ -9,8 +9,9 @@ import { AuditPanel, ChangesetsPanel, FactsPanel, OutlineTree } from './componen
 import { DirectivesPanel, StructurePanel, ThreadsPanel, WritingContextPanel } from './components/HarnessPanels';
 import { UnitPanel } from './components/UnitPanel';
 import { ContextHome, ContextPage, ContextSettingsDialog, NewContextDialog, NewProjectInContextDialog, ctxSpaceLabel } from './components/Contexts';
+import { ArchiveActions, ProjectName, RenameButton, RenameInput, importSummary } from './components/Archive';
 import { LAYOUT_KINDS, layoutHint, layoutLabel, type LayoutKind } from './components/graphLayout';
-import type { ContextView, FocusState, IndirectLink, Operation, OutlineItem, Project, Schema, ViewFilter, ViewResult } from './types';
+import type { ContextView, FocusState, ImportResult, IndirectLink, Operation, OutlineItem, Project, Schema, ViewFilter, ViewResult } from './types';
 import { baseLabel } from './types';
 import { lang, setLang, t, type Lang } from './i18n';
 
@@ -57,6 +58,7 @@ export function App() {
   const [pending, setPending] = useState(0);
   const [contextUnit, setContextUnit] = useState<string | null>(null);
   const [styleDraft, setStyleDraft] = useState<{ sample: string; reference: string } | null>(null);
+  const [renamingTop, setRenamingTop] = useState(false);
   const canvas = useRef<GraphCanvasHandle>(null);
 
   const notify = useCallback((text: string, error = false) => {
@@ -192,6 +194,20 @@ export function App() {
     }
   };
 
+  const onRenamed = (p: Project) => {
+    setProjects((ps) => ps.map((x) => (x.id === p.id ? p : x)));
+    notify(t(`Renamed to "${p.name}"`, `Renomeado para "${p.name}"`));
+  };
+  const onImported = async (r: ImportResult) => {
+    await Promise.all([reloadProjects(), reloadContexts()]);
+    notify(importSummary(r));
+    if (r.projects.length === 1) {
+      const p = r.projects[0];
+      setContextId(p.context ?? NARRATIVE);
+      openProject(p.projectId);
+    }
+  };
+
   const saveStyle = async () => {
     if (!project || !styleDraft) return;
     try {
@@ -216,12 +232,15 @@ export function App() {
         {projectId && (isBlueprint ? (
           <span className="chip blueprint" title={t('Changes here define every new project of the context', 'Mudanças aqui definem todo projeto novo do contexto')}>
             ✎ {t('Definition of the context', 'Definição do contexto')}</span>
+        ) : renamingTop && project ? (
+          <RenameInput project={project} onError={(m) => notify(m, true)} onDone={(p) => { setRenamingTop(false); if (p) onRenamed(p); }} />
         ) : (
           <select value={projectId} onChange={(e) => e.target.value === '__new' ? setModal('newProject') : openProject(e.target.value)} aria-label={t('Project', 'Projeto')}>
             {ctxProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             <option value="__new">{t('+ New project…', '+ Novo projeto…')}</option>
           </select>
         ))}
+        {projectId && !isBlueprint && !renamingTop && project && <RenameButton onClick={() => setRenamingTop(true)} />}
         {projectId && (
           <nav className="tabs">
             {tabs.map((x) => (
@@ -253,9 +272,11 @@ export function App() {
             onEditDefinition={() => ctx.blueprintProjectId && openProject(ctx.blueprintProjectId)}
             onSettings={() => setModal('ctxSettings')}
             onDerive={() => { setDeriveBase(ctx.id); setModal('newContext'); }}
-            onBack={() => goContext(undefined)} />
+            onBack={() => goContext(undefined)}
+            onRenamed={onRenamed} onImported={onImported} onError={(m) => notify(m, true)} />
         ) : (
-          <ContextHome contexts={contexts} onOpen={(id) => goContext(id)} onCreate={() => { setDeriveBase(undefined); setModal('newContext'); }} />
+          <ContextHome contexts={contexts} onOpen={(id) => goContext(id)} onCreate={() => { setDeriveBase(undefined); setModal('newContext'); }}
+            onImported={onImported} />
         )
       ) : (
         <div className="main">
@@ -356,7 +377,7 @@ export function App() {
                   </div>
                 )}
                 <div className="section">
-                  <h4>{project?.name}</h4>
+                  {project && !isBlueprint ? <ProjectName as="h4" project={project} onRenamed={onRenamed} onError={(m) => notify(m, true)} /> : <h4>{project?.name}</h4>}
                   {project?.description && <p>{project.description}</p>}
                   <p className="small muted">
                     {t('Profile', 'Perfil')}: {project?.profile ?? '—'} · {t('Language', 'Idioma')}: <b>{project?.locale === 'en' ? 'English' : 'Português'}</b> · LLM {project?.requireReviewForLlm ? t('needs approval', 'precisa de aprovação') : t('writes directly (audited)', 'grava direto (auditado)')}
@@ -370,6 +391,7 @@ export function App() {
                   </label>
                   {!isBlueprint && <div className="row" style={{ marginTop: 8, flexWrap: 'wrap', gap: 6 }}>
                     <button className="small" onClick={() => setModal('clone')}>{t('Clone…', 'Clonar…')}</button>
+                    <ArchiveActions projectId={projectId} small onImported={onImported} />
                     <button className="small" onClick={convertLanguage} title={t('Converts the schema to the other language', 'Converte o schema para o outro idioma')}>
                       {project?.locale === 'en' ? t('Convert to Portuguese…', 'Converter para português…') : t('Convert to English…', 'Converter para inglês…')}
                     </button>

@@ -101,7 +101,16 @@ public class ProjectService {
     /** Updates settings. Locale is not changed here: use localization, which also converts the schema. */
     public Views.Project update(String id, String name, String description, String profile, Boolean requireReviewForLlm,
                                 String styleSample, String styleReference) {
-        get(id);
+        var current = get(id);
+        String newName = name == null ? null : name.trim();
+        if (newName != null) {
+            if (newName.isEmpty()) throw new DomainException(t("Project name cannot be empty", "O nome do projeto não pode ficar vazio"));
+            String wanted = newName;
+            if (!Boolean.TRUE.equals(current.blueprint())
+                    && list().stream().anyMatch(p -> !p.id().equals(id) && p.name().trim().equalsIgnoreCase(wanted))) {
+                throw new DomainException(t("There is already a project named '", "Já existe um projeto chamado '") + wanted + "'");
+            }
+        }
         if (styleReference != null && !styleReference.isBlank()) {
             if (styleReference.equals(id)) throw new DomainException(t("A project cannot be its own style reference", "Um projeto não pode ser a própria referência de estilo"));
             get(styleReference);
@@ -113,7 +122,7 @@ public class ProjectService {
                         p.profile = coalesce($profile, p.profile), p.requireReviewForLlm = coalesce($review, p.requireReviewForLlm),
                         p.styleSample = CASE WHEN $style IS NULL THEN p.styleSample WHEN $style = '' THEN null ELSE $style END,
                         p.styleReference = CASE WHEN $ref IS NULL THEN p.styleReference WHEN $ref = '' THEN null ELSE $ref END
-                    """, params("id", id, "name", name, "description", description, "profile", profile, "review", requireReviewForLlm,
+                    """, params("id", id, "name", newName, "description", description, "profile", profile, "review", requireReviewForLlm,
                     "style", styleSample, "ref", styleReference)).consume();
             return null;
         });

@@ -2,6 +2,7 @@ package com.obliterateharness.harness;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.obliterateharness.domain.Actor;
+import com.obliterateharness.domain.AttrDef;
 import com.obliterateharness.domain.BaseKind;
 import com.obliterateharness.domain.DomainException;
 import com.obliterateharness.domain.Ids;
@@ -48,11 +49,13 @@ import static com.obliterateharness.i18n.I18n.t;
  * The archive ({@value #FORMAT}, version {@value #VERSION}) is meant to be read by other platforms too: every record carries
  * its original id and plain JSON values (attributes are objects, not encoded strings). Properties this version does not name
  * explicitly travel in each record's {@code extra}, so nothing is lost on a round trip. It does not carry relational history
- * (changesets, audit, sessions, text drafts) nor the narrative template library.
+ * (changesets, audit, sessions) nor anything of the narrative layer being retired: units and their structure (base Unit,
+ * CONTAINS, parent/order), time anchors (fromUnit/toUnit), secrets (revealAt), style settings, unit texts, templates, and
+ * attributes with the roles manuscript/word_count/location/secret or the story_time type. Old fields found in an archive are ignored.
  * <p>
- * Import creates new projects with new ids, remapping every internal reference (edges, time anchors, facts, node_ref
- * attributes, style reference). All graph writes happen in one transaction; context rows (Postgres) are written after it and,
- * if that fails, the imported projects are removed again: all or nothing.
+ * Import creates new projects with new ids, remapping every internal reference (edges, facts, node_ref attributes). All graph
+ * writes happen in one transaction; context rows (Postgres) are written after it and, if that fails, the imported projects are
+ * removed again: all or nothing.
  */
 @Service
 public class ArchiveService {
@@ -89,11 +92,10 @@ public class ArchiveService {
                                Settings settings, Schema schema, List<NodeEntry> nodes, List<EdgeEntry> edges, List<FactEntry> facts,
                                List<DirectiveEntry> directives, Map<String, Integer> counts) {}
 
-    /** @param styleReference id of another project (kept only when that project is in the same archive) */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Settings(Boolean requireReviewForLlm, String styleSample, String styleReference) {}
+    public record Settings(Boolean requireReviewForLlm) {}
 
-    /** The system structure relation CONTAINS is not listed: every project has it. */
+    /** Without the narrative structure relation CONTAINS, Unit-based node types and narrative attributes (see the class comment). */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     public record Schema(List<NodeTypeDef> nodeTypes, List<RelTypeDef> relTypes, List<ObjectTypeDef> objectTypes) {}
 
@@ -105,28 +107,25 @@ public class ArchiveService {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record NodeEntry(String id, String typeId, String type, String base, String space, String name, String summary, String description,
                             List<String> tags, String criticality, Map<String, Object> attributes, Map<String, List<String>> refs,
-                            Map<String, String> attributeCriticality,
-                            Double order, Long version, String createdAt, String updatedAt, String createdBy, String updatedBy,
+                            Map<String, String> attributeCriticality, Long version, String createdAt, String updatedAt, String createdBy, String updatedBy,
                             Map<String, Object> extra) {}
 
     /**
-     * @param kind    rel (a typed relation), structure (parent contains child) or attr (mirror of a node_ref attribute)
+     * @param kind    rel (a typed relation) or attr (mirror of a node_ref attribute)
      * @param attrKey attr edges: the attribute they mirror
-     * @param fromUnit time anchor: unit (node id) where the relation starts to hold; toUnit where it ends
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record EdgeEntry(String id, String kind, String relTypeId, String relType, String base, String from, String to, String attrKey,
-                            String description, String criticality, List<String> tags, String fromUnit, String toUnit, Long version,
+                            String description, String criticality, List<String> tags, Long version,
                             String createdAt, String updatedAt, String createdBy, Map<String, Object> extra) {}
 
     /**
      * @param originKind manual (written by someone) or node/attr/edge (mirrored from the criticality of that record, originId)
      * @param about      node ids the fact is about
-     * @param revealAt   unit (node id) where the fact stops being a secret
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record FactEntry(String id, String text, String rigidity, String criticality, String originKind, String originId, String originKey,
-                            List<String> about, String revealAt, Long version, String createdAt, String updatedAt, String createdBy,
+                            List<String> about, Long version, String createdAt, String updatedAt, String createdBy,
                             Map<String, Object> extra) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -151,12 +150,17 @@ public class ArchiveService {
         }
     }
 
+    // known keys, plus the narrative ones that are left out of the archive (and dropped if an old archive brings them in extra)
     private static final Set<String> NODE_KEYS = Set.of("id", "projectId", "typeId", "typeName", "base", "space", "name", "summary", "description",
-            "tags", "criticality", "attrs", "attrMeta", "attrsText", "order", "version", "createdAt", "updatedAt", "createdBy", "updatedBy");
+            "tags", "criticality", "attrs", "attrMeta", "attrsText", "version", "createdAt", "updatedAt", "createdBy", "updatedBy",
+            "order", "sortKey", "parent", "cast", "wordCount");
     private static final Set<String> EDGE_KEYS = Set.of("id", "projectId", "kind", "relTypeId", "name", "base", "attrKey", "description",
-            "criticality", "tags", "fromUnit", "toUnit", "version", "createdAt", "updatedAt", "createdBy");
+            "criticality", "tags", "version", "createdAt", "updatedAt", "createdBy", "fromUnit", "toUnit");
     private static final Set<String> FACT_KEYS = Set.of("id", "projectId", "text", "rigidity", "criticality", "originKind", "originId", "originKey",
-            "revealAt", "version", "createdAt", "updatedAt", "createdBy");
+            "version", "createdAt", "updatedAt", "createdBy", "revealAt");
+    /** Attribute roles and data types of the narrative layer: not exported. */
+    private static final Set<String> NARRATIVE_ROLES = Set.of("manuscript", "word_count", "location", "secret");
+    private static final String NARRATIVE_TYPE = "story_time";
     private static final Set<String> DIRECTIVE_KEYS = Set.of("id", "projectId", "text", "when", "bases", "types", "priority", "enabled", "version",
             "createdAt", "updatedAt");
 
@@ -242,26 +246,54 @@ public class ArchiveService {
     private ProjectEntry projectEntry(Views.Project p) {
         String pid = p.id();
         return graph.read(tx -> {
-            var nts = schema.nodeTypes(tx, pid).stream().map(nt -> new NodeTypeDef(nt.id(), null, nt.name(), nt.base(), nt.description(), nt.color(),
-                    nt.strict(), nt.attributes(), nt.systemKey())).toList();
+            // Unit-based types (narrative structure) and narrative attributes stay out
+            Set<String> unitTypes = new HashSet<>();
+            Map<String, Set<String>> droppedAttrs = new HashMap<>();
+            List<NodeTypeDef> nts = new ArrayList<>();
+            for (var nt : schema.nodeTypes(tx, pid)) {
+                if ("Unit".equalsIgnoreCase(nt.base())) {
+                    unitTypes.add(nt.id());
+                    continue;
+                }
+                Set<String> drop = new HashSet<>();
+                nt.attrs().stream().filter(ArchiveService::narrativeAttr).forEach(a -> drop.add(a.key()));
+                droppedAttrs.put(nt.id(), drop);
+                nts.add(new NodeTypeDef(nt.id(), null, nt.name(), nt.base(), nt.description(), nt.color(), nt.strict(),
+                        nt.attrs().stream().filter(a -> !narrativeAttr(a)).toList(), nt.systemKey()));
+            }
             var rts = schema.relTypes(tx, pid).stream().filter(rt -> !SchemaStore.CONTAINS.equals(rt.name()))
                     .map(rt -> new RelTypeDef(rt.id(), null, rt.name(), rt.base(), rt.description(), rt.symmetric(), rt.inverseName(), rt.temporal(),
                             rt.allowed(), rt.systemKey())).toList();
-            var ots = schema.objectTypes(tx, pid).stream().map(ot -> new ObjectTypeDef(ot.id(), null, ot.name(), ot.description(), ot.fields())).toList();
+            var ots = schema.objectTypes(tx, pid).stream().map(ot -> new ObjectTypeDef(ot.id(), null, ot.name(), ot.description(),
+                    ot.fieldList().stream().filter(a -> !narrativeAttr(a)).toList())).toList();
 
+            Map<String, Set<String>> dropByNode = new HashMap<>();
+            List<Map<String, Object>> nodeRows = new ArrayList<>();
+            for (var r : tx.run("MATCH (n:N {projectId:$p}) RETURN n ORDER BY n.createdAt, n.id", Map.of("p", pid)).list()) {
+                Map<String, Object> n = r.get("n").asMap();
+                if (unitTypes.contains(s(n, "typeId"))) continue;
+                dropByNode.put(s(n, "id"), droppedAttrs.getOrDefault(s(n, "typeId"), Set.of()));
+                nodeRows.add(n);
+            }
+            Set<String> kept = dropByNode.keySet();
             Map<String, Map<String, List<String>>> refs = new HashMap<>();
             tx.run("""
                     MATCH (a:N {projectId:$p})-[r:R {kind:'attr'}]->(b:N) RETURN a.id AS a, r.attrKey AS k, b.id AS b ORDER BY r.createdAt, r.id
-                    """, Map.of("p", pid)).forEachRemaining(r -> refs.computeIfAbsent(r.get("a").asString(), x -> new LinkedHashMap<>())
-                    .computeIfAbsent(r.get("k").asString(), x -> new ArrayList<>()).add(r.get("b").asString()));
+                    """, Map.of("p", pid)).forEachRemaining(r -> {
+                String a = r.get("a").asString(), k = r.get("k").asString(), b = r.get("b").asString();
+                if (!kept.contains(a) || !kept.contains(b) || dropByNode.get(a).contains(k)) return;
+                refs.computeIfAbsent(a, x -> new LinkedHashMap<>()).computeIfAbsent(k, x -> new ArrayList<>()).add(b);
+            });
             List<NodeEntry> nodes = new ArrayList<>();
-            for (var r : tx.run("MATCH (n:N {projectId:$p}) RETURN n ORDER BY n.createdAt, n.id", Map.of("p", pid)).list()) {
-                Map<String, Object> n = r.get("n").asMap();
+            for (var n : nodeRows) {
+                Set<String> drop = dropByNode.get(s(n, "id"));
+                Map<String, Object> attrs = readMap(s(n, "attrs"));
+                Map<String, Object> meta = readMap(s(n, "attrMeta"));
+                attrs.keySet().removeAll(drop);
+                meta.keySet().removeAll(drop);
                 nodes.add(new NodeEntry(s(n, "id"), s(n, "typeId"), s(n, "typeName"), s(n, "base"), s(n, "space"), s(n, "name"), s(n, "summary"),
-                        s(n, "description"), strings(n.get("tags")), s(n, "criticality"), readMap(s(n, "attrs")), refs.get(s(n, "id")),
-                        stringMap(readMap(s(n, "attrMeta"))),
-                        n.get("order") instanceof Number o ? o.doubleValue() : null, longOf(n.get("version")), s(n, "createdAt"), s(n, "updatedAt"),
-                        s(n, "createdBy"), s(n, "updatedBy"), extra(n, NODE_KEYS)));
+                        s(n, "description"), strings(n.get("tags")), s(n, "criticality"), attrs, refs.get(s(n, "id")), stringMap(meta),
+                        longOf(n.get("version")), s(n, "createdAt"), s(n, "updatedAt"), s(n, "createdBy"), s(n, "updatedBy"), extra(n, NODE_KEYS)));
             }
 
             List<EdgeEntry> edges = new ArrayList<>();
@@ -269,10 +301,15 @@ public class ArchiveService {
                     Map.of("p", pid)).list()) {
                 Map<String, Object> e = r.get("r").asMap();
                 String kind = s(e, "kind") == null ? "rel" : s(e, "kind");
-                edges.add(new EdgeEntry(s(e, "id"), kind, s(e, "relTypeId"), s(e, "name"), s(e, "base"), r.get("a").asString(), r.get("b").asString(),
-                        s(e, "attrKey"), s(e, "description"), s(e, "criticality"), strings(e.get("tags")), s(e, "fromUnit"), s(e, "toUnit"),
+                String a = r.get("a").asString(), b = r.get("b").asString();
+                if ("structure".equals(kind) || !kept.contains(a) || !kept.contains(b)) continue;
+                if ("attr".equals(kind) && dropByNode.get(a).contains(s(e, "attrKey"))) continue;
+                edges.add(new EdgeEntry(s(e, "id"), kind, s(e, "relTypeId"), s(e, "name"), s(e, "base"), a, b,
+                        s(e, "attrKey"), s(e, "description"), s(e, "criticality"), strings(e.get("tags")),
                         longOf(e.get("version")), s(e, "createdAt"), s(e, "updatedAt"), s(e, "createdBy"), extra(e, EDGE_KEYS)));
             }
+            Set<String> edgeIds = new HashSet<>();
+            edges.forEach(e -> edgeIds.add(e.id()));
 
             List<FactEntry> facts = new ArrayList<>();
             for (var r : tx.run("""
@@ -280,8 +317,15 @@ public class ArchiveService {
                     RETURN f, collect(n.id) AS about ORDER BY f.createdAt, f.id
                     """, Map.of("p", pid)).list()) {
                 Map<String, Object> f = r.get("f").asMap();
-                facts.add(new FactEntry(s(f, "id"), s(f, "text"), s(f, "rigidity"), s(f, "criticality"), s(f, "originKind"), s(f, "originId"),
-                        s(f, "originKey"), r.get("about").asList(Value::asString), s(f, "revealAt"), longOf(f.get("version")), s(f, "createdAt"),
+                String kind = s(f, "originKind") == null ? "manual" : s(f, "originKind");
+                String origin = s(f, "originId");
+                // a mirrored fact follows its origin: none when the origin is not in the archive
+                if ("edge".equals(kind) && !edgeIds.contains(origin)) continue;
+                if (("node".equals(kind) || "attr".equals(kind)) && !kept.contains(origin)) continue;
+                if ("attr".equals(kind) && dropByNode.get(origin).contains(s(f, "originKey"))) continue;
+                List<String> about = r.get("about").asList(Value::asString).stream().filter(kept::contains).toList();
+                facts.add(new FactEntry(s(f, "id"), s(f, "text"), s(f, "rigidity"), s(f, "criticality"), kind, origin,
+                        s(f, "originKey"), about, longOf(f.get("version")), s(f, "createdAt"),
                         s(f, "updatedAt"), s(f, "createdBy"), extra(f, FACT_KEYS)));
             }
 
@@ -302,8 +346,13 @@ public class ArchiveService {
             counts.put("facts", facts.size());
             counts.put("directives", dirs.size());
             return new ProjectEntry(pid, p.name(), p.description(), p.context(), p.locale(), p.profile(), p.createdAt(),
-                    new Settings(p.requireReviewForLlm(), p.styleSample(), p.styleReference()), new Schema(nts, rts, ots), nodes, edges, facts, dirs, counts);
+                    new Settings(p.requireReviewForLlm()), new Schema(nts, rts, ots), nodes, edges, facts, dirs, counts);
         });
+    }
+
+    private static boolean narrativeAttr(AttrDef a) {
+        return a.role() != null && NARRATIVE_ROLES.contains(a.role()) || NARRATIVE_TYPE.equalsIgnoreCase(a.dataType())
+                || NARRATIVE_TYPE.equalsIgnoreCase(a.itemType());
     }
 
     // ================================================================== import
@@ -428,12 +477,10 @@ public class ArchiveService {
         List<Plan> all = new ArrayList<>();
         newContexts.forEach(n -> all.add(n.blueprint()));
         all.addAll(plans);
-        Map<String, String> projectIds = new HashMap<>();
-        all.forEach(p -> projectIds.put(p.entry().id(), p.newId()));
         Map<String, Map<String, Integer>> counts = new HashMap<>();
         String now = Instant.now().toString();
         graph.write(tx -> {
-            for (Plan p : all) counts.put(p.newId(), writeProject(tx, p, projectIds, now));
+            for (Plan p : all) counts.put(p.newId(), writeProject(tx, p, now, notes));
             return null;
         });
 
@@ -483,7 +530,7 @@ public class ArchiveService {
         if (e.schema() != null) {
             for (var nt : list(e.schema().nodeTypes())) {
                 if (nt.id() == null || nt.name() == null) throw new DomainException(who + t("node type without id or name", "tipo de nó sem id ou nome"));
-                nt.baseKind();
+                if (nt.base() == null) throw new DomainException(who + t("node type without base: ", "tipo de nó sem base: ") + nt.name());
                 typeIds.add(nt.id());
             }
             for (var rt : list(e.schema().relTypes())) {
@@ -518,30 +565,43 @@ public class ArchiveService {
     }
 
     /** Writes one project with new ids. Returns the counts written. */
-    private Map<String, Integer> writeProject(TransactionContext tx, Plan plan, Map<String, String> projectIds, String now) {
+    private Map<String, Integer> writeProject(TransactionContext tx, Plan plan, String now, List<String> notes) {
         ProjectEntry e = plan.entry();
         String pid = plan.newId();
-        Settings st = e.settings() == null ? new Settings(null, null, null) : e.settings();
-        String styleRef = st.styleReference() == null ? null : projectIds.get(st.styleReference());
+        Settings st = e.settings() == null ? new Settings(null) : e.settings();
         tx.run("""
                 CREATE (p:Project {id:$id, name:$name, description:$description, profile:$profile, requireReviewForLlm:$review,
-                                   createdAt:$now, locale:$locale, styleSample:$style, styleReference:$ref, context:$context, blueprint:$blueprint,
-                                   importedFrom:$from, importedAt:$now})
-                CREATE (t:RelType {id:$rt, projectId:$id, name:'CONTAINS', nameLower:'contains', base:'STRUCTURE',
-                                   description:'Narrative structure (parent contains child). System relation.',
-                                   symmetric:false, temporal:false, allowed:'[{"from":"@Unit","to":"@Unit"}]'})
+                                   createdAt:$now, locale:$locale, context:$context, blueprint:$blueprint, importedFrom:$from, importedAt:$now})
                 """, params("id", pid, "name", plan.name(), "description", e.description(), "profile", e.profile(),
                 "review", Boolean.TRUE.equals(st.requireReviewForLlm()), "now", now, "locale", Lang.parse(e.locale(), Lang.en).name(),
-                "style", st.styleSample(), "ref", styleRef, "context", plan.context(), "blueprint", plan.blueprint() ? Boolean.TRUE : null,
-                "from", e.id(), "rt", "rt_contains_" + pid)).consume();
+                "context", plan.context(), "blueprint", plan.blueprint() ? Boolean.TRUE : null, "from", e.id())).consume();
 
-        // ---- schema
+        // ---- schema (archives from before the narrative cleanup may bring Unit types and narrative attributes: left out)
         Schema sc = e.schema() == null ? new Schema(List.of(), List.of(), List.of()) : e.schema();
         Map<String, NodeTypeDef> types = new HashMap<>();
+        Map<String, Set<String>> droppedAttrs = new HashMap<>();
+        int skippedTypes = 0;
         for (var nt : list(sc.nodeTypes())) {
-            var copy = new NodeTypeDef(Ids.next("nt"), pid, nt.name(), nt.base(), nt.description(), nt.color(), nt.strict(), nt.attributes(), nt.systemKey());
+            if ("Unit".equalsIgnoreCase(nt.base())) {
+                skippedTypes++;
+                continue;
+            }
+            String base = base(nt.base());
+            if (!base.equalsIgnoreCase(nt.base())) {
+                notes.add(t("Type '", "Tipo '") + nt.name() + t("' had base ", "' tinha base ") + nt.base()
+                        + t(", which this platform does not have: imported as ", ", que esta plataforma não tem: importado como ") + base + ".");
+            }
+            Set<String> drop = new HashSet<>();
+            nt.attrs().stream().filter(ArchiveService::narrativeAttr).forEach(a -> drop.add(a.key()));
+            droppedAttrs.put(nt.id(), drop);
+            var copy = new NodeTypeDef(Ids.next("nt"), pid, nt.name(), base, nt.description(), nt.color(), nt.strict(),
+                    nt.attrs().stream().filter(a -> !narrativeAttr(a)).toList(), nt.systemKey());
             schema.saveNodeType(tx, copy);
             types.put(nt.id(), copy);
+        }
+        if (skippedTypes > 0) {
+            notes.add(skippedTypes + t(" narrative unit type(s) (base Unit) and their nodes were left out.",
+                    " tipo(s) de unidade narrativa (base Unit) e seus nós ficaram de fora."));
         }
         Map<String, RelTypeDef> rels = new HashMap<>();
         for (var rt : list(sc.relTypes())) {
@@ -550,17 +610,30 @@ public class ArchiveService {
             schema.saveRelType(tx, copy);
             rels.put(rt.id(), copy);
         }
-        for (var ot : list(sc.objectTypes())) schema.saveObjectType(tx, new ObjectTypeDef(Ids.next("ot"), pid, ot.name(), ot.description(), ot.fields()));
+        for (var ot : list(sc.objectTypes())) {
+            schema.saveObjectType(tx, new ObjectTypeDef(Ids.next("ot"), pid, ot.name(), ot.description(),
+                    ot.fieldList().stream().filter(a -> !narrativeAttr(a)).toList()));
+        }
 
         // ---- nodes
         Map<String, String> ids = new HashMap<>();
-        for (var n : list(e.nodes())) ids.put(n.id(), Ids.next("n"));
+        Map<String, Set<String>> dropByNode = new HashMap<>();
+        for (var n : list(e.nodes())) {
+            if (!types.containsKey(n.typeId())) continue;
+            ids.put(n.id(), Ids.next("n"));
+            dropByNode.put(n.id(), droppedAttrs.get(n.typeId()));
+        }
         for (var n : list(e.nodes())) {
             NodeTypeDef type = types.get(n.typeId());
+            if (type == null) continue;
+            Set<String> drop = dropByNode.get(n.id());
             Map<String, Object> props = new HashMap<>(n.extra() == null ? Map.of() : n.extra());
             props.keySet().removeAll(NODE_KEYS);
             @SuppressWarnings("unchecked")
             Map<String, Object> attrs = n.attributes() == null ? new LinkedHashMap<>() : (Map<String, Object>) remap(n.attributes(), ids);
+            attrs.keySet().removeAll(drop);
+            Map<String, String> meta = new LinkedHashMap<>(n.attributeCriticality() == null ? Map.of() : n.attributeCriticality());
+            meta.keySet().removeAll(drop);
             props.put("id", ids.get(n.id()));
             props.put("projectId", pid);
             props.put("typeId", type.id());
@@ -573,9 +646,8 @@ public class ArchiveService {
             props.put("tags", n.tags() == null ? List.of() : n.tags());
             props.put("criticality", n.criticality() == null ? "normal" : n.criticality());
             props.put("attrs", mapper.writeValueAsString(attrs));
-            props.put("attrMeta", mapper.writeValueAsString(n.attributeCriticality() == null ? Map.of() : n.attributeCriticality()));
+            props.put("attrMeta", mapper.writeValueAsString(meta));
             props.put("attrsText", attrsText(attrs));
-            props.put("order", n.order());
             props.put("version", n.version() == null ? 1L : n.version());
             props.put("createdAt", n.createdAt() == null ? now : n.createdAt());
             props.put("updatedAt", n.updatedAt() == null ? now : n.updatedAt());
@@ -587,15 +659,12 @@ public class ArchiveService {
 
         // ---- edges
         Map<String, String> edgeIds = new HashMap<>();
-        int droppedAnchors = 0;
         for (var ed : list(e.edges())) {
             String a = ids.get(ed.from()), b = ids.get(ed.to());
             String kind = ed.kind() == null ? "rel" : ed.kind();
-            String nid = switch (kind) {
-                case "structure" -> "e_s_" + b;
-                case "attr" -> "e_" + a + "_" + ed.attrKey() + "_" + b;
-                default -> Ids.next("e");
-            };
+            if (a == null || b == null || "structure".equals(kind)) continue;
+            if ("attr".equals(kind) && dropByNode.get(ed.from()).contains(ed.attrKey())) continue;
+            String nid = "attr".equals(kind) ? "e_" + a + "_" + ed.attrKey() + "_" + b : Ids.next("e");
             edgeIds.put(ed.id(), nid);
             Map<String, Object> props = new HashMap<>(ed.extra() == null ? Map.of() : ed.extra());
             props.keySet().removeAll(EDGE_KEYS);
@@ -610,14 +679,6 @@ public class ArchiveService {
             props.put("description", ed.description());
             props.put("criticality", ed.criticality() == null ? "normal" : ed.criticality());
             props.put("tags", ed.tags() == null ? List.of() : ed.tags());
-            Map<String, String> anchors = new HashMap<>();
-            anchors.put("fromUnit", ed.fromUnit());
-            anchors.put("toUnit", ed.toUnit());
-            for (var anchor : anchors.entrySet()) {
-                if (anchor.getValue() == null) continue;
-                if (ids.containsKey(anchor.getValue())) props.put(anchor.getKey(), ids.get(anchor.getValue()));
-                else droppedAnchors++;
-            }
             props.put("version", ed.version() == null ? 1L : ed.version());
             props.put("createdAt", ed.createdAt() == null ? now : ed.createdAt());
             props.put("updatedAt", ed.updatedAt());
@@ -641,6 +702,7 @@ public class ArchiveService {
                 nid = "f_" + newOrigin;
             } else {
                 if (!ids.containsKey(origin)) continue;
+                if ("attr".equals(kind) && dropByNode.get(origin).contains(f.originKey())) continue;
                 newOrigin = ids.get(origin);
                 nid = "f_" + newOrigin + "__" + ("attr".equals(kind) ? f.originKey() : "node");
             }
@@ -655,7 +717,6 @@ public class ArchiveService {
             props.put("originKind", kind);
             props.put("originId", newOrigin);
             props.put("originKey", f.originKey());
-            if (f.revealAt() != null && ids.containsKey(f.revealAt())) props.put("revealAt", ids.get(f.revealAt()));
             props.put("version", f.version() == null ? 1L : f.version());
             props.put("createdAt", f.createdAt() == null ? now : f.createdAt());
             props.put("updatedAt", f.updatedAt() == null ? now : f.updatedAt());
@@ -694,11 +755,19 @@ public class ArchiveService {
         counts.put("edges", edgeIds.size());
         counts.put("facts", factCount);
         counts.put("directives", list(e.directives()).size());
-        if (droppedAnchors > 0) counts.put("droppedAnchors", droppedAnchors);
         return counts;
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /** Base kind on this platform: the archive's, or Object when this platform does not have it (e.g. an archive from a newer or older version). */
+    private static String base(String archived) {
+        try {
+            return BaseKind.parse(archived).name();
+        } catch (DomainException e) {
+            return BaseKind.Object.name();
+        }
+    }
 
     /** Replaces node ids of the archive by the new ones anywhere inside an attribute value (node_ref, lists, composites). */
     private static Object remap(Object v, Map<String, String> ids) {

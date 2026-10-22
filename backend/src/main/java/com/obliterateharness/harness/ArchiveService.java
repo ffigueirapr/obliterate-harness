@@ -84,7 +84,7 @@ public class ArchiveService {
                                ProjectEntry definition) {}
 
     /**
-     * @param context id of the context (see the archive's contexts); null = narrative (projects from before contexts)
+     * @param context id of the context (see the archive's contexts)
      * @param counts  how many records of each kind, to check an import
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -194,7 +194,7 @@ public class ArchiveService {
                     "Este é o projeto de definição de um contexto: exporte um projeto desse contexto, ou tudo (GET /api/export)"));
         }
         List<ContextEntry> ctx = new ArrayList<>();
-        contextEntry(p.context() == null ? ProjectService.NARRATIVE_CONTEXT : p.context()).ifPresent(ctx::add);
+        if (p.context() != null) contextEntry(p.context()).ifPresent(ctx::add);
         return new Archive(FORMAT, VERSION, Instant.now().toString(), "obliterate-harness", "project", ctx, List.of(projectEntry(p)));
     }
 
@@ -204,8 +204,8 @@ public class ArchiveService {
         Set<String> seen = new HashSet<>();
         List<ProjectEntry> entries = new ArrayList<>();
         for (var p : projects.list()) {
-            String c = p.context() == null ? ProjectService.NARRATIVE_CONTEXT : p.context();
-            if (seen.add(c)) contextEntry(c).ifPresent(ctx::add);
+            String c = p.context();
+            if (c != null && seen.add(c)) contextEntry(c).ifPresent(ctx::add);
             entries.add(projectEntry(p));
         }
         for (var row : contextRepo.list()) if (seen.add(row.id())) contextEntry(row.id()).ifPresent(ctx::add);
@@ -261,7 +261,7 @@ public class ArchiveService {
                 nts.add(new NodeTypeDef(nt.id(), null, nt.name(), nt.base(), nt.description(), nt.color(), nt.strict(),
                         nt.attrs().stream().filter(a -> !narrativeAttr(a)).toList(), nt.systemKey()));
             }
-            var rts = schema.relTypes(tx, pid).stream().filter(rt -> !SchemaStore.CONTAINS.equals(rt.name()))
+            var rts = schema.relTypes(tx, pid).stream().filter(rt -> !"CONTAINS".equals(rt.name()))
                     .map(rt -> new RelTypeDef(rt.id(), null, rt.name(), rt.base(), rt.description(), rt.symmetric(), rt.inverseName(), rt.temporal(),
                             rt.allowed(), rt.systemKey())).toList();
             var ots = schema.objectTypes(tx, pid).stream().map(ot -> new ObjectTypeDef(ot.id(), null, ot.name(), ot.description(),

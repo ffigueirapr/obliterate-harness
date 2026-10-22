@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import ForceGraph3D, { type ForceGraph3DInstance } from '3d-force-graph';
 import {
-  BoxGeometry, BufferGeometry, Color, ConeGeometry, CylinderGeometry, DodecahedronGeometry, Group, IcosahedronGeometry, Line,
+  BoxGeometry, BufferGeometry, Color, CylinderGeometry, DodecahedronGeometry, Group, IcosahedronGeometry, Line,
   LineDashedMaterial, Mesh, MeshLambertMaterial, OctahedronGeometry, SphereGeometry, TetrahedronGeometry, TorusGeometry, Vector3,
   type BufferGeometry as Geometry, type Object3D,
 } from 'three';
@@ -59,8 +59,6 @@ const GEOMETRY: Record<string, Geometry> = {
   Ability: new IcosahedronGeometry(R * 1.1),
   Concept: new DodecahedronGeometry(R * 1.05),
   Event: new TetrahedronGeometry(R * 1.3),
-  Unit: new BoxGeometry(R * 2, R * 1.3, R * 1.3),
-  Device: new ConeGeometry(R, R * 2, 8),
   Media: new TorusGeometry(R * 0.8, R * 0.35, 8, 16),
   Note: new BoxGeometry(R * 1.6, R * 1.6, R * 0.6),
 };
@@ -113,7 +111,9 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
   const hovered = useRef<string | null>(null);
   const restyleRef = useRef<() => void>(() => {});
   const wakeRef = useRef<(ms?: number) => void>(() => {});
+  // enquadra sozinho quando a simulação estabilizar depois de uma carga de dados, se o usuário não mexeu na câmera
   const needsFit = useRef(true);
+  const userMoved = useRef(false);
   const degree = useRef(new Map<string, number>());
 
   // cria a cena uma vez por projeto
@@ -141,7 +141,9 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
     };
     wakeRef.current = wake;
     const onInput = () => wake();
+    const onCamera = () => { userMoved.current = true; };
     for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const) el.addEventListener(ev, onInput, { passive: true });
+    for (const ev of ['pointerdown', 'wheel'] as const) el.addEventListener(ev, onCamera, { passive: true });
 
     // ---- destaque: selecionados + vizinhos acesos, o resto apagado ----
     const highlight = () => {
@@ -223,8 +225,7 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
           const on = !anyLit || (lit.has(s) && lit.has(tg) && (selNodes.current.has(s) || selNodes.current.has(tg) || l === selL));
           let c = l.indirect ? colors.accent : l.crit === 'foundational' ? colors.gold : l.crit === 'critical' ? colors.warn : colors.edge;
           if (l === selL) c = colors.accent;
-          const a = l.kind === 'structure' ? 0.5 : 1;
-          return rgba(c, on ? a : 0.06);
+          return rgba(c, on ? 1 : 0.06);
         })
         .linkDirectionalArrowColor((l: L3) => {
           const s = endId(l.source), tg = endId(l.target);
@@ -273,7 +274,7 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
       .linkLabel((l: L3) => escapeHtml(l.label || l.kind))
       .linkWidth(0)
       .linkOpacity(0.6)
-      .linkDirectionalArrowLength((l: L3) => (l.indirect || l.kind === 'structure' ? 0 : 3.5))
+      .linkDirectionalArrowLength((l: L3) => (l.indirect ? 0 : 3.5))
       .linkDirectionalArrowRelPos(1)
       .linkHoverPrecision(2)
       .linkThreeObject((l: L3) => {
@@ -351,7 +352,7 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
         if (needsFit.current && nodesRef.current.size > 0) {
           needsFit.current = false;
           // depois do posicionamento inicial de câmera que o 3d-force-graph faz na primeira carga
-          setTimeout(() => { wake(1000); graph.zoomToFit(500, 40); }, 60);
+          if (!userMoved.current) setTimeout(() => { wake(1000); graph.zoomToFit(500, 40); }, 60);
         } else {
           wake(300);
         }
@@ -386,6 +387,7 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
       cancelAnimationFrame(restylePending);
       ro.disconnect();
       for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const) el.removeEventListener(ev, onInput);
+      for (const ev of ['pointerdown', 'wheel'] as const) el.removeEventListener(ev, onCamera);
       savePositions(pid, [...nodesRef.current.values()]);
       graph._destructor();
       el.innerHTML = '';
@@ -434,7 +436,7 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
     const links: L3[] = [];
     for (const e of props.edges) {
       if (!next.has(e.from) || !next.has(e.to)) continue;
-      links.push({ id: e.id, source: e.from, target: e.to, label: e.kind === 'structure' ? '' : e.relType, kind: e.kind, crit: e.criticality ?? 'normal' });
+      links.push({ id: e.id, source: e.from, target: e.to, label: e.relType, kind: e.kind, crit: e.criticality ?? 'normal' });
     }
     for (const l of props.indirect) {
       if (!next.has(l.from) || !next.has(l.to)) continue;
@@ -455,6 +457,11 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
     // descarta da seleção o que sumiu da visão
     selNodes.current = new Set([...selNodes.current].filter((id) => next.has(id)));
 
+    if (!sameNodes) {
+      // carga nova (projeto, filtro, foco, troca 2D→3D): enquadra de novo quando estabilizar
+      needsFit.current = true;
+      userMoved.current = false;
+    }
     if (!sameNodes || !sameLinks) {
       degree.current = deg;
       linksRef.current = links;
@@ -475,21 +482,20 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
           }
         });
       }
-      // tudo restaurado da última visita: nem roda a simulação
-      graph.cooldownTicks(fresh.length === 0 && restored > 0 && old.size === 0 ? 0 : Infinity);
+      // tudo restaurado da última visita: fixa todos e roda só 2 passos, para os objetos 3D irem às posições
+      // salvas (com 0 passos eles ficariam empilhados na origem); o onEngineStop solta de novo
+      const allRestored = fresh.length === 0 && restored > 0 && old.size === 0;
+      if (allRestored) {
+        next.forEach((n) => {
+          if (n.fx == null) { n.fx = n.x; n.fy = n.y; n.fz = n.z; (n as N3 & { __pinned?: boolean }).__pinned = true; }
+        });
+      }
+      graph.cooldownTicks(allRestored ? 2 : Infinity);
       graph.graphData({ nodes: [...next.values()], links });
       wakeRef.current();
     }
     restyleRef.current();
   }, [props.nodes, props.edges, props.indirect, props.contextIds, props.nodeTypes, props.projectId, props.distance, props.centerId]);
-
-  // entrar/sair do foco: enquadra o que está visível
-  useEffect(() => {
-    const graph = graphRef.current;
-    if (!graph || nodesRef.current.size === 0) return;
-    const tm = setTimeout(() => { wakeRef.current(1200); graph.zoomToFit(600, 50); }, 500);
-    return () => clearTimeout(tm);
-  }, [props.centerId]);
 
   useImperativeHandle(ref, () => ({
     fit: () => {
@@ -501,6 +507,7 @@ export const GraphCanvas3D = forwardRef<GraphCanvasHandle, GraphCanvasProps>(fun
       if (!graph) return;
       arrange(graph, [...nodesRef.current.values()], linksRef.current, kind, propsRef.current);
       needsFit.current = true;
+      userMoved.current = false;
       graph.cooldownTicks(Infinity).d3ReheatSimulation();
       wakeRef.current();
     },
@@ -555,9 +562,8 @@ function arrange(graph: Graph, nodes: N3[], links: L3[], kind: LayoutKind, props
   switch (kind) {
     case 'hierarquico': {
       // níveis por distância (BFS) a partir do centro do foco, das obras, ou do nó mais ligado
-      let roots = props.centerId ? [props.centerId] : nodes.filter((n) => n.base === 'Unit' &&
-        !links.some((l) => l.kind === 'structure' && endId(l.target) === n.id)).map((n) => n.id);
-      if (roots.length === 0 && nodes.length) roots = [nodes.reduce((a, b) => (deg(b.id) > deg(a.id) ? b : a)).id];
+      // raiz: o centro do foco, ou o nó mais ligado
+      const roots = props.centerId ? [props.centerId] : nodes.length ? [nodes.reduce((a, b) => (deg(b.id) > deg(a.id) ? b : a)).id] : [];
       const level = new Map<string, number>(roots.map((r) => [r, 0]));
       const queue = [...roots];
       while (queue.length) {

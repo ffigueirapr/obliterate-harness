@@ -13,7 +13,7 @@ import static com.obliterateharness.i18n.I18n.t;
  *
  * @param key                attribute id (slug, e.g. "age")
  * @param label              friendly label
- * @param dataType           int, decimal, bool, string_short, text_long, enum, story_time, json, node_ref, list, composite, media
+ * @param dataType           int, decimal, bool, string_short, text_long, enum, json, node_ref, list, composite, media
  * @param required           mandatory on creation
  * @param options            valid values (enum)
  * @param itemType           item type (list)
@@ -23,8 +23,6 @@ import static com.obliterateharness.i18n.I18n.t;
  * @param maxLength          character limit (string_short defaults to 255)
  * @param defaultCriticality criticality applied when the value is set without an explicit one
  * @param role               what the engine uses this attribute for, independent of its name/language:
- *                           manuscript (the unit's prose/script), word_count (computed by the server),
- *                           location (where the unit happens), secret (what must not be revealed early),
  *                           link (URL to an external document or system with the details; shown as a link)
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -43,7 +41,7 @@ public record AttrDef(
         String defaultCriticality,
         String role
 ) {
-    public static final Set<String> ROLES = Set.of("manuscript", "word_count", "location", "secret", "link");
+    public static final Set<String> ROLES = Set.of("link");
 
     /** Short constructor without role (legacy call sites). */
     public AttrDef(String key, String label, String dataType, Boolean required, String description, List<String> options, String itemType,

@@ -115,7 +115,7 @@ public final class AttributeValidator {
                 }
                 yield s;
             }
-            case TEXT_LONG, STORY_TIME, MEDIA -> {
+            case TEXT_LONG, MEDIA -> {
                 if (value instanceof String s) yield s;
                 throw typeError(path, t("a text", "um texto"), value);
             }

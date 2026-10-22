@@ -3,7 +3,7 @@ package com.obliterateharness.domain;
 import static com.obliterateharness.i18n.I18n.t;
 
 /**
- * Rule rigidity: law (never break), norm (rule of thumb; deviating needs a narrative reason), flavor (background).
+ * Rule rigidity: law (never break), norm (the default; deviating needs a stated reason), flavor (informative).
  */
 public enum Rigidity {
     law, norm, flavor;

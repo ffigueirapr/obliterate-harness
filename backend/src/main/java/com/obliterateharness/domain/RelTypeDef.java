@@ -9,8 +9,8 @@ import java.util.List;
  *
  * @param allowed   allowed source/target pairs. Each side takes a type name, "@Base" (e.g. "@Agent") or "*".
  *                  Empty or null = any pair.
- * @param temporal  when true, the relation accepts narrative anchors (fromUnit/toUnit)
- * @param systemKey language-independent key the engine relies on (appears_in, plants, pays...); null for ordinary relations
+ * @param temporal  kept for compatibility with older data; no effect
+ * @param systemKey language-independent key the engine relies on to find a relation whatever its name; null for ordinary relations
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record RelTypeDef(

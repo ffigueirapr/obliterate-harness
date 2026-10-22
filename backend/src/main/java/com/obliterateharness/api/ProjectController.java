@@ -40,18 +40,19 @@ import static com.obliterateharness.i18n.I18n.t;
 @RequestMapping("/api/projects")
 public class ProjectController {
 
-    /** @param locale language of the project's schema and content (en or pt); default English */
-    /** @param context context to create the project in (its types and rules come along); default: the profile alone (narrative) */
-    public record ProjectInput(String name, String description, String profile, Boolean requireReviewForLlm, String locale,
-                               String styleSample, String styleReference, String context) {}
+    /**
+     * @param locale  language of the project's schema and content (en or pt); default English
+     * @param context context to create the project in (its types, rules and directives come along); required on creation
+     * @param profile preset inside a built-in context; default: the context's default preset
+     */
+    public record ProjectInput(String name, String description, String profile, Boolean requireReviewForLlm, String locale, String context) {}
 
     /** @param mode atomic (default), dry_run or best_effort */
     public record ChangesetInput(String title, List<Operation> operations, String mode) {}
 
     public record RejectInput(String reason) {}
 
-    public record CloneInput(String newName, Boolean includeUnits, Boolean includeFacts, Boolean includeDirectives, Boolean includeTemplates,
-                             String translateTo) {}
+    public record CloneInput(String newName, Boolean includeNodes, Boolean includeFacts, Boolean includeDirectives, String translateTo) {}
 
     public record LocalizeInput(String locale) {}
 
@@ -92,16 +93,12 @@ public class ProjectController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public Views.Project create(@RequestBody ProjectInput in) {
-        Lang lang = Lang.parse(in.locale(), Lang.en);
-        if (in.context() != null && !in.context().isBlank()) {
-            var p = contexts.createProject(in.context(), in.name(), in.description(), lang.name(), in.profile(), in.requireReviewForLlm(), Actor.human);
-            if (in.styleSample() != null || in.styleReference() != null) projects.update(p.id(), null, null, null, null, in.styleSample(), in.styleReference());
-            return projects.get(p.id());
+        if (in.context() == null || in.context().isBlank()) {
+            throw new DomainException(t("'context' is required: a project is created inside a context (GET /api/contexts)",
+                    "'context' é obrigatório: o projeto é criado dentro de um contexto (GET /api/contexts)"));
         }
-        var p = projects.create(in.name(), in.description(), in.profile(), in.requireReviewForLlm(), lang.name());
-        if (in.styleSample() != null || in.styleReference() != null) projects.update(p.id(), null, null, null, null, in.styleSample(), in.styleReference());
-        if (library.profile(in.profile(), lang).isPresent()) I18n.with(lang, () -> profiles.apply(p.id(), in.profile(), Actor.system));
-        return projects.get(p.id());
+        Lang lang = Lang.parse(in.locale(), Lang.en);
+        return contexts.createProject(in.context(), in.name(), in.description(), lang.name(), in.profile(), in.requireReviewForLlm(), Actor.human);
     }
 
     @GetMapping("/{pid}")
@@ -115,7 +112,7 @@ public class ProjectController {
             throw new DomainException(t("To change the project's language use POST /localize (it converts the schema too)",
                     "Para mudar o idioma do projeto use POST /localize (ele converte o schema também)"));
         }
-        return projects.update(pid, in.name(), in.description(), in.profile(), in.requireReviewForLlm(), in.styleSample(), in.styleReference());
+        return projects.update(pid, in.name(), in.description(), in.profile(), in.requireReviewForLlm());
     }
 
     /** Copies the project (optionally translating the copy's schema). */
@@ -123,11 +120,11 @@ public class ProjectController {
     @ResponseStatus(HttpStatus.CREATED)
     public CloneService.Result cloneProject(@PathVariable String pid, @RequestBody CloneInput in) {
         return cloner.cloneProject(pid, in.newName(), new CloneService.Options(
-                in.includeUnits() == null || in.includeUnits(), in.includeFacts() == null || in.includeFacts(),
-                in.includeDirectives() == null || in.includeDirectives(), in.includeTemplates() == null || in.includeTemplates()), in.translateTo());
+                in.includeNodes() == null || in.includeNodes(), in.includeFacts() == null || in.includeFacts(),
+                in.includeDirectives() == null || in.includeDirectives()), in.translateTo());
     }
 
-    /** Converts the project's schema (types, attributes, enums, relations, templates) to another language. */
+    /** Converts the project's schema (types, attributes, enums, relations) to another language. */
     @PostMapping("/{pid}/localize")
     public LocalizationService.Report localize(@PathVariable String pid, @RequestBody LocalizeInput in) {
         Lang target = Lang.parse(in.locale(), null);

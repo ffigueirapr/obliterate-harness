@@ -39,15 +39,13 @@ function TagEditor({ tags, onChange }: { tags: string[]; onChange: (t: string[])
 
 // ------------------------------------------------------------------ node
 
-export function NodeEditor({ projectId, nodeId, schema, run, onFocus, reloadKey, onShowContext, onOpenUnit }: {
+export function NodeEditor({ projectId, nodeId, schema, run, onFocus, reloadKey }: {
   projectId: string; nodeId: string; schema: Schema; run: Run; onFocus: (id: string) => void; reloadKey: number;
-  onShowContext: (unitId: string) => void; onOpenUnit: (unitId: string) => void;
 }) {
   const [detail, setDetail] = useState<NodeDetail | null>(null);
   const [draft, setDraft] = useState<GNode | null>(null);
   const [attrs, setAttrs] = useState<Record<string, unknown>>({});
-  const [units, setUnits] = useState<GNode[]>([]);
-  const [newFact, setNewFact] = useState({ text: '', rigidity: 'law', criticality: 'foundational', revealAt: '' });
+  const [newFact, setNewFact] = useState({ text: '', rigidity: 'law', criticality: 'foundational' });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -68,17 +66,11 @@ export function NodeEditor({ projectId, nodeId, schema, run, onFocus, reloadKey,
     return () => { alive = false; };
   }, [projectId, nodeId, reloadKey, schema]);
 
-  useEffect(() => {
-    api.nodes(projectId, { bases: ['Unit'], limit: 1000, detail: 'id' }).then(setUnits).catch(() => setUnits([]));
-  }, [projectId]);
-
   const type = useMemo(() => schema.nodeTypes.find((x) => x.name === detail?.node.type), [schema, detail]);
   if (error) return <div className="muted">{error}</div>;
   if (!detail || !draft) return <div className="muted">{t('Loading…', 'Carregando…')}</div>;
   const n = detail.node;
-  // manuscript and word count are edited in the unit workbench, not as plain attributes
-  const editable = (type?.attributes ?? []).filter((d) => d.role !== 'manuscript' && d.role !== 'word_count');
-  const hasManuscript = (type?.attributes ?? []).some((d) => d.role === 'manuscript') || n.base === 'Unit';
+  const editable = type?.attributes ?? [];
 
   const save = async () => {
     const op: Operation = { op: 'update_node', id: n.id, expectedVersion: n.version };
@@ -88,19 +80,13 @@ export function NodeEditor({ projectId, nodeId, schema, run, onFocus, reloadKey,
     if (JSON.stringify(draft.tags ?? []) !== JSON.stringify(n.tags ?? [])) op.tags = draft.tags ?? [];
     if ((draft.criticality ?? 'normal') !== (n.criticality ?? 'normal')) op.criticality = draft.criticality;
     if (draft.space !== n.space) op.space = draft.space;
-    if (n.base === 'Unit') {
-      if ((draft.parent ?? '') !== (n.parent ?? '')) op.parent = draft.parent ?? '';
-      if (draft.order !== n.order) op.order = draft.order;
-    }
     const original: Record<string, unknown> = { ...(n.attributes ?? {}) };
     for (const [k, ids] of Object.entries(n.refs ?? {})) {
       const def = type?.attributes?.find((a) => a.key === k);
       original[k] = def?.dataType === 'list' ? ids : ids[0];
     }
-    const skip = new Set((type?.attributes ?? []).filter((d) => d.role === 'manuscript' || d.role === 'word_count').map((d) => d.key));
     const changed: Record<string, unknown> = {};
     for (const k of new Set([...Object.keys(original), ...Object.keys(attrs)])) {
-      if (skip.has(k)) continue;
       const a = attrs[k] ?? null;
       const b = original[k] ?? null;
       if (JSON.stringify(a) !== JSON.stringify(b)) changed[k] = a;
@@ -123,11 +109,11 @@ export function NodeEditor({ projectId, nodeId, schema, run, onFocus, reloadKey,
   return (
     <div>
       <div className="section">
-        <h4>{n.type} <span className="muted small">{baseLabel(n.base)} · v{n.version}{n.wordCount ? ` · ${n.wordCount} ${t('words', 'palavras')}` : ''}</span></h4>
+        <h4>{n.type} <span className="muted small">{baseLabel(n.base)} · v{n.version}</span></h4>
         <div className="field"><label>{t('Name', 'Nome')}</label><input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></div>
         <div className="field"><label>{t('Summary', 'Resumo')}</label>
           <textarea rows={2} value={draft.summary ?? ''} onChange={(e) => setDraft({ ...draft, summary: e.target.value })} />
-          <div className="hint">{t('Short: it is what the LLM gets in briefings and validations.', 'Curto: é o que a LLM recebe em briefings e validações.')}</div>
+          <div className="hint">{t('Short: it is what the LLM gets in briefings and searches.', 'Curto: é o que a LLM recebe em briefings e buscas.')}</div>
         </div>
         <div className="field"><label>{t('Description', 'Descrição')}</label>
           <textarea rows={4} value={draft.description ?? ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></div>
@@ -139,17 +125,6 @@ export function NodeEditor({ projectId, nodeId, schema, run, onFocus, reloadKey,
             </select></div>
         </div>
         <div className="field"><label>Tags</label><TagEditor tags={draft.tags ?? []} onChange={(x) => setDraft({ ...draft, tags: x })} /></div>
-        {n.base === 'Unit' && (
-          <div className="row">
-            <div className="field"><label>{t('Inside', 'Dentro de')}</label>
-              <select value={draft.parent ?? ''} onChange={(e) => setDraft({ ...draft, parent: e.target.value || undefined })}>
-                <option value="">{t('(root)', '(raiz)')}</option>
-                {units.filter((u) => u.id !== n.id).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select></div>
-            <div className="field fixed" style={{ width: 80 }}><label>{t('Order', 'Ordem')}</label>
-              <input type="number" value={draft.order ?? ''} onChange={(e) => setDraft({ ...draft, order: Number(e.target.value) })} /></div>
-          </div>
-        )}
       </div>
 
       {editable.length > 0 && (
@@ -172,18 +147,6 @@ export function NodeEditor({ projectId, nodeId, schema, run, onFocus, reloadKey,
         </div>
       )}
 
-      {n.base === 'Unit' && (
-        <div className="row" style={{ marginBottom: 8 }}>
-          {hasManuscript && (
-            <button onClick={() => onOpenUnit(n.id)} title={t('Prose/script, drafts, cast and validation', 'Prosa/roteiro, rascunhos, elenco e validação')}>
-              ✎ {t('Manuscript & cast', 'Manuscrito e elenco')}
-            </button>
-          )}
-          <button onClick={() => onShowContext(n.id)} title={t('The package the LLM gets to write this unit', 'O pacote que a LLM recebe para escrever esta unidade')}>
-            {t('Writing context', 'Contexto de escrita')}
-          </button>
-        </div>
-      )}
       <div className="row" style={{ marginBottom: 16 }}>
         <button className="primary" onClick={save}>{t('Save', 'Salvar')}</button>
         <button className="danger fixed" onClick={() => confirm(t(`Delete "${n.name}" and its relations?`, `Excluir "${n.name}" e suas relações?`)) &&
@@ -199,34 +162,25 @@ export function NodeEditor({ projectId, nodeId, schema, run, onFocus, reloadKey,
             <div key={e.id} className="small" style={{ padding: '2px 0' }}>
               {e.from === n.id ? '→' : '←'} <b className={e.criticality ? `crit-${e.criticality}` : ''}>{e.relType}</b>{' '}
               <span className="tree node-link" onClick={() => onFocus(other.id)}>{other.name}</span>
-              {(e.fromUnit || e.toUnit) && <span className="muted"> ⏱</span>}
             </div>
           );
         })}
       </div>
 
-      <FactsBlock facts={detail.facts} run={run} units={units} />
+      <FactsBlock facts={detail.facts} run={run} />
 
       <div className="section">
         <h4>{t('New fact about this node', 'Novo fato sobre este nó')}</h4>
-        <textarea rows={2} placeholder={t('E.g. the power only works at night', 'Ex.: o poder só funciona à noite')} value={newFact.text} onChange={(e) => setNewFact({ ...newFact, text: e.target.value })} />
+        <textarea rows={2} placeholder={t('E.g. refunds above 5,000 need two approvals', 'Ex.: estornos acima de 5 mil exigem duas aprovações')} value={newFact.text} onChange={(e) => setNewFact({ ...newFact, text: e.target.value })} />
         <div className="row" style={{ marginTop: 4 }}>
           <select value={newFact.rigidity} onChange={(e) => setNewFact({ ...newFact, rigidity: e.target.value })}>
             {['law', 'norm', 'flavor'].map((r) => <option key={r} value={r}>{rigidityLabel(r)}</option>)}
           </select>
           <CritSelect value={newFact.criticality} onChange={(v) => setNewFact({ ...newFact, criticality: v })} />
         </div>
-        <div className="field" style={{ marginTop: 4 }}>
-          <label>{t('Secret until (the reader learns it in…)', 'Segredo até (o leitor descobre em…)')}</label>
-          <select value={newFact.revealAt} onChange={(e) => setNewFact({ ...newFact, revealAt: e.target.value })}>
-            <option value="">{t('(not a secret)', '(não é segredo)')}</option>
-            {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
-        </div>
         <button disabled={!newFact.text.trim()} onClick={async () => {
           const op: Operation = { op: 'create_fact', text: newFact.text, rigidity: newFact.rigidity, criticality: newFact.criticality, about: [n.id] };
-          if (newFact.revealAt) op.revealAt = newFact.revealAt;
-          if (await run(t('New fact', 'Novo fato'), [op])) setNewFact({ ...newFact, text: '', revealAt: '' });
+          if (await run(t('New fact', 'Novo fato'), [op])) setNewFact({ ...newFact, text: '' });
         }}>{t('Add', 'Adicionar')}</button>
       </div>
       <div className="muted small">{t('Created by', 'Criado por')} {n.createdBy} · {t('updated by', 'atualizado por')} {n.updatedBy} {t('at', 'em')} {fmtDate(n.updatedAt)}</div>
@@ -234,7 +188,7 @@ export function NodeEditor({ projectId, nodeId, schema, run, onFocus, reloadKey,
   );
 }
 
-function FactsBlock({ facts, run, units }: { facts: Fact[]; run: Run; units: GNode[] }) {
+function FactsBlock({ facts, run }: { facts: Fact[]; run: Run }) {
   if (facts.length === 0) return null;
   return (
     <div className="section">
@@ -242,17 +196,11 @@ function FactsBlock({ facts, run, units }: { facts: Fact[]; run: Run; units: GNo
       {facts.map((f) => (
         <div key={f.id} className="list-item small">
           <div><span className={`crit-${f.criticality}`}>{f.criticality === 'foundational' ? '◆' : '●'}</span> {f.text}</div>
-          {f.revealAt && <div className="muted">🔒 {t('secret until', 'segredo até')} {f.revealAt.name}</div>}
           <div className="row" style={{ marginTop: 4 }}>
             <select value={f.rigidity} onChange={(e) => run(t('Fact rigidity', 'Rigidez do fato'), [{ op: 'update_fact', id: f.id, expectedVersion: f.version, rigidity: e.target.value }])}>
               <option value="law">{t('law (never broken)', 'lei (inviolável)')}</option>
               <option value="norm">{t('norm (rule of thumb)', 'norma (via de regra)')}</option>
-              <option value="flavor">{t('flavor', 'ambientação')}</option>
-            </select>
-            <select title={t('Secret until', 'Segredo até')} value={f.revealAt?.id ?? ''}
-              onChange={(e) => run(t('Fact reveal', 'Revelação do fato'), [{ op: 'update_fact', id: f.id, expectedVersion: f.version, revealAt: e.target.value }])}>
-              <option value="">{t('not secret', 'não é segredo')}</option>
-              {units.map((u) => <option key={u.id} value={u.id}>🔒 {u.name}</option>)}
+              <option value="flavor">{t('flavor (informative)', 'informativo')}</option>
             </select>
             {f.origin === 'manual'
               ? <button className="danger fixed" onClick={() => run(t('Delete fact', 'Excluir fato'), [{ op: 'delete_fact', id: f.id, expectedVersion: f.version }])}>{t('Delete', 'Excluir')}</button>
@@ -266,31 +214,19 @@ function FactsBlock({ facts, run, units }: { facts: Fact[]; run: Run; units: GNo
 
 // ------------------------------------------------------------------ edge
 
-export function EdgeEditor({ projectId, edge, run }: { projectId: string; edge: GEdge; run: Run }) {
+export function EdgeEditor({ edge, run }: { projectId: string; edge: GEdge; run: Run }) {
   const [draft, setDraft] = useState(edge);
-  const [units, setUnits] = useState<GNode[]>([]);
   useEffect(() => setDraft(edge), [edge]);
-  useEffect(() => { api.nodes(projectId, { bases: ['Unit'], limit: 1000, detail: 'id' }).then(setUnits).catch(() => setUnits([])); }, [projectId]);
   if (edge.kind !== 'rel') {
-    return <div className="muted">{edge.kind === 'structure'
-      ? t('Structure relation: edit it with the unit\'s "Inside".', 'Relação de estrutura: edite pelo "Dentro de" da unidade.')
-      : t(`Attribute "${edge.relType}" of the source node: edit it on the node.`, `Atributo "${edge.relType}" do nó de origem: edite pelo nó.`)}</div>;
+    return <div className="muted">{t(`Attribute "${edge.relType}" of the source node: edit it on the node.`, `Atributo "${edge.relType}" do nó de origem: edite pelo nó.`)}</div>;
   }
   const save = () => {
     const op: Operation = { op: 'update_edge', id: edge.id, expectedVersion: edge.version };
     if ((draft.description ?? '') !== (edge.description ?? '')) op.description = draft.description ?? '';
     if ((draft.criticality ?? 'normal') !== (edge.criticality ?? 'normal')) op.criticality = draft.criticality;
-    if ((draft.fromUnit ?? '') !== (edge.fromUnit ?? '')) op.fromUnit = draft.fromUnit ?? '';
-    if ((draft.toUnit ?? '') !== (edge.toUnit ?? '')) op.toUnit = draft.toUnit ?? '';
     if (JSON.stringify(draft.tags ?? []) !== JSON.stringify(edge.tags ?? [])) op.tags = draft.tags ?? [];
     if (Object.keys(op).length > 3) run(`${t('Edit relation', 'Editar relação')} ${edge.relType}`, [op]);
   };
-  const unitSelect = (value: string | undefined, set: (v: string | undefined) => void) => (
-    <select value={value ?? ''} onChange={(e) => set(e.target.value || undefined)}>
-      <option value="">{t('(always)', '(sempre)')}</option>
-      {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-    </select>
-  );
   return (
     <div>
       <div className="section">
@@ -299,10 +235,6 @@ export function EdgeEditor({ projectId, edge, run }: { projectId: string; edge: 
         <div className="field"><label>{t('Description', 'Descrição')}</label>
           <textarea rows={3} value={draft.description ?? ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></div>
         <div className="field"><label>{t('Criticality', 'Criticidade')}</label><CritSelect value={draft.criticality} onChange={(v) => setDraft({ ...draft, criticality: v as GEdge['criticality'] })} /></div>
-        <div className="row">
-          <div className="field"><label>{t('Holds from', 'Vale a partir de')}</label>{unitSelect(draft.fromUnit, (v) => setDraft({ ...draft, fromUnit: v }))}</div>
-          <div className="field"><label>{t('Until (inclusive)', 'Até (inclusive)')}</label>{unitSelect(draft.toUnit, (v) => setDraft({ ...draft, toUnit: v }))}</div>
-        </div>
         <div className="field"><label>Tags</label><TagEditor tags={draft.tags ?? []} onChange={(x) => setDraft({ ...draft, tags: x })} /></div>
       </div>
       <div className="row">
@@ -318,7 +250,7 @@ export function EdgeEditor({ projectId, edge, run }: { projectId: string; edge: 
 export function BulkEditor({ nodes, run, onClear }: { nodes: GNode[]; run: Run; onClear: () => void }) {
   const [tag, setTag] = useState('');
   const [crit, setCrit] = useState('critical');
-  const [space, setSpace] = useState('world');
+  const [space, setSpace] = useState('knowledge');
   const update = (title: string, patch: (n: GNode) => Record<string, unknown>) =>
     run(title, nodes.map((n) => ({ op: 'update_node', id: n.id, expectedVersion: n.version, ...patch(n) })));
   const byType = nodes.reduce<Record<string, number>>((acc, n) => ({ ...acc, [n.type]: (acc[n.type] ?? 0) + 1 }), {});

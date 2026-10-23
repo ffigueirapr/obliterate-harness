@@ -7,7 +7,7 @@ import { LocaleSelect, Modal } from './Dialogs';
 import { ArchiveActions, RenameButton, RenameInput } from './Archive';
 import type { ImportResult } from '../types';
 
-const SPACES = ['actors', 'knowledge', 'analysis'];
+const SPACES = ['actors', 'knowledge', 'story', 'analysis', 'templates'];
 const ICONS = ['🏢', '💳', '🤝', '⚖️', '🧪', '🏥', '🛒', '🎓', '🛠️', '📚', '🌍', '🎮', '📖', '🧩'];
 
 /** Label of a space in a context (the context's own name for it, or the default). */
@@ -290,8 +290,8 @@ export function ContextSettingsDialog({ ctx, onClose, onSaved, onDeleted }: {
             <input value={labels[s] ?? ''} placeholder={spaceLabel(s)} onChange={(e) => setLabels({ ...labels, [s]: e.target.value })} />
           </div>
         ))}
-        <p className="hint">{t('Node types land in a space by their base (agents → actors; everything else → knowledge); a node can be moved to another space.',
-          'Os tipos de nó caem num espaço pela base (agentes → atores; todo o resto → conhecimento); um nó pode ser movido para outro espaço.')}</p>
+        <p className="hint">{t('Node types land in a space by their base (agents → actors; units and narrative devices → story; everything else → knowledge).',
+          'Os tipos de nó caem num espaço pela base (agentes → atores; unidades e recursos narrativos → roteiro; o resto → conhecimento).')}</p>
       </div>
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
     </Modal>

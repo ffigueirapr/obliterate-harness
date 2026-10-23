@@ -34,9 +34,11 @@ const created = { projects: [], contexts: [] };
 try {
   console.log('# Built-in contexts');
   const list = await call('GET', '/api/contexts', undefined, 'pt');
+  const narrative = list.find((c) => c.id === 'narrative');
   const corporate = list.find((c) => c.id === 'corporate');
-  ok(!list.some((c) => c.id === 'narrative'), 'the old narrative context is gone');
-  ok(corporate && corporate.kind === 'builtin' && corporate.tabs.join() === 'actors,knowledge,analysis', 'corporate context has its own tabs');
+  ok(narrative && narrative.kind === 'builtin' && narrative.narrative, 'narrative context is built-in and narrative');
+  ok(narrative.presets.some((p) => p.id === 'livro'), 'narrative offers the book preset');
+  ok(corporate && !corporate.narrative && corporate.tabs.join() === 'actors,knowledge,analysis', 'corporate context has its own tabs');
   ok(corporate.spaceLabels?.actors === 'Pessoas e contas', 'space labels come in the request language');
 
   console.log('# A corporate project');
@@ -71,7 +73,7 @@ try {
   console.log('# Custom context based on corporate');
   const ctx = await call('POST', '/api/contexts', { name: 'Smoke payments brain ' + Date.now(), description: 'Payments ops', icon: '💳', locale: 'en', baseContext: 'corporate', instructions: 'Always state the settlement rule.' });
   created.contexts.push(ctx);
-  ok(ctx.kind === 'custom' && ctx.blueprintProjectId && ctx.baseContext === 'corporate', 'custom context with a blueprint');
+  ok(ctx.kind === 'custom' && ctx.blueprintProjectId && ctx.baseContext === 'corporate' && !ctx.narrative, 'custom context with a blueprint');
   ok(ctx.tabs.join() === 'actors,knowledge,analysis', 'inherits the base tabs');
   const all = await call('GET', '/api/projects');
   ok(!all.some((p) => p.id === ctx.blueprintProjectId), 'blueprint is hidden from the project list');
@@ -82,8 +84,8 @@ try {
       { op: 'upsert_directive', text: 'Quote the settlement window of the client.', definition: { when: ['context'], priority: 5 } },
     ],
   });
-  const updated = await call('PATCH', `/api/contexts/${ctx.id}`, { spaceLabels: { knowledge: 'Rules & money', world: 'legacy name' } });
-  ok(updated.spaceLabels.knowledge === 'Rules & money', 'context settings updated (a legacy space name does not override the current one)');
+  const updated = await call('PATCH', `/api/contexts/${ctx.id}`, { spaceLabels: { world: 'Rules & money' } });
+  ok(updated.spaceLabels.knowledge === 'Rules & money', 'context settings updated');
 
   const p2 = await call('POST', `/api/contexts/${ctx.id}/projects`, { name: 'Smoke payments project ' + Date.now() });
   created.projects.push(p2);

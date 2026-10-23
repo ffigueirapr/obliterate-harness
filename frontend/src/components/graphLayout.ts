@@ -14,7 +14,7 @@ export const layoutLabel = (k: LayoutKind) => ({
 
 export const layoutHint = (k: LayoutKind) => ({
   organico: t('Groups what is linked together', 'Agrupa o que é ligado entre si'),
-  hierarquico: t('Tree from the most connected node (or the focused one)', 'Árvore a partir do nó mais conectado (ou do nó em foco)'),
+  hierarquico: t('Tree from the focused node, the work (stories) or the most connected node', 'Árvore a partir do nó em foco, da obra (histórias) ou do nó mais conectado'),
   aneis: t('Rings by distance from the focused node (or by number of links)', 'Anéis por distância do nó em foco (ou por número de conexões)'),
   grade: t('Grid sorted by type', 'Grade ordenada por tipo'),
 })[k];
@@ -156,8 +156,9 @@ export function runLayout(cy: Core, kind: LayoutKind, opts: { distance?: Record<
   let options: Record<string, unknown>;
   switch (kind) {
     case 'hierarquico': {
-      // without a focus, start from the most connected node
-      let roots: string[] = opts.centerId ? [opts.centerId] : [cy.nodes().max((n) => n.degree(false)).ele.id()];
+      let roots: string[] = opts.centerId ? [opts.centerId] : cy.nodes().filter((n) =>
+        n.data('base') === 'Unit' && n.incomers('edge[kind = "structure"]').empty()).map((n) => n.id());
+      if (roots.length === 0) roots = [cy.nodes().max((n) => n.degree(false)).ele.id()];
       roots = roots.map((id) => '#' + CSS.escape(id));
       options = { name: 'breadthfirst', directed: false, roots: roots.join(','), spacingFactor: 1.3, avoidOverlap: true, ...common };
       break;

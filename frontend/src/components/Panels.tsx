@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { api, type ChangeMode } from '../api';
 import { Modal } from './Dialogs';
-import type { AuditEntry, ChangesetRow, Fact, Proposal } from '../types';
+import type { AuditEntry, ChangesetRow, Fact, OutlineItem, Proposal } from '../types';
 import { rigidityLabel } from '../types';
 import { fmtDate, t } from '../i18n';
 
@@ -144,6 +144,22 @@ export function AuditPanel({ projectId, entityId, onClose }: { projectId: string
   );
 }
 
+export function OutlineTree({ items, onFocus }: { items: OutlineItem[]; onFocus: (id: string) => void }) {
+  if (items.length === 0) return <div className="muted small">{t('No narrative units yet.', 'Sem unidades narrativas ainda.')}</div>;
+  return (
+    <ul className="tree" style={{ paddingLeft: 0 }}>
+      {items.map((i) => (
+        <li key={i.id}>
+          <span className="node-link" onClick={() => onFocus(i.id)} title={i.summary}>{i.name}</span>
+          {i.status && <span className="muted small"> · {i.status}</span>}
+          {!!i.wordCount && <span className="muted small"> · {i.wordCount} {t('w', 'p')}</span>}
+          {i.children && i.children.length > 0 && <OutlineTree items={i.children} onFocus={onFocus} />}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function FactsPanel({ projectId, onClose, onFocus }: { projectId: string; onClose: () => void; onFocus: (id: string) => void }) {
   const [min, setMin] = useState('critical');
   const [q, setQ] = useState('');
@@ -154,8 +170,8 @@ export function FactsPanel({ projectId, onClose, onFocus }: { projectId: string;
   }, [projectId, min, q]);
   return (
     <Modal title={t('Facts and rules', 'Fatos e regras')} onClose={onClose}>
-      <p className="small muted">{t('Everything marked critical or foundational (on nodes, attributes or relations) shows up here. It is what the LLM always gets so it does not contradict itself.',
-        'Tudo que foi marcado como crítico ou fundacional (em nós, atributos ou relações) aparece aqui. É isso que a LLM sempre recebe para não se contradizer.')}</p>
+      <p className="small muted">{t('Everything marked critical or foundational (on nodes, attributes or relations) shows up here. It is what the LLM always gets so it does not contradict itself. 🔒 = secret until a unit.',
+        'Tudo que foi marcado como crítico ou fundacional (em nós, atributos ou relações) aparece aqui. É isso que a LLM sempre recebe para não se contradizer. 🔒 = segredo até uma unidade.')}</p>
       <div className="row" style={{ marginBottom: 12 }}>
         <input placeholder={t('search the facts', 'buscar nos fatos')} value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="fixed" style={{ width: 200 }} value={min} onChange={(e) => setMin(e.target.value)}>
@@ -168,7 +184,8 @@ export function FactsPanel({ projectId, onClose, onFocus }: { projectId: string;
       {facts.map((f) => (
         <div key={f.id} className="list-item">
           <div><span className={`crit-${f.criticality}`}>{f.criticality === 'foundational' ? `◆ ${t('foundational', 'fundacional')}` : `● ${t('critical', 'crítico')}`}</span>
-            {' · '}<b>{rigidityLabel(f.rigidity)}</b> <span className="muted small">· {f.origin === 'manual' ? 'manual' : t('mirrored', 'espelhado')}</span></div>
+            {' · '}<b>{rigidityLabel(f.rigidity)}</b> <span className="muted small">· {f.origin === 'manual' ? 'manual' : t('mirrored', 'espelhado')}</span>
+            {f.revealAt && <span className="small"> · 🔒 {t('until', 'até')} <span className="tree node-link" onClick={() => { onFocus(f.revealAt!.id); onClose(); }}>{f.revealAt.name}</span></span>}</div>
           <div>{f.text}</div>
           <div className="chips" style={{ marginTop: 4 }}>
             {f.about?.map((a) => <button key={a.id} className="chip" onClick={() => { onFocus(a.id); onClose(); }}>{a.name}</button>)}

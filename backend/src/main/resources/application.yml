@@ -33,14 +33,15 @@ spring:
         instructions: |
           Obliterate Harness: a graph "brain" that people and LLMs shape for any domain. Each context (domain) defines its node
           types, relations, binding rules and instructions; a built-in one models a company's internal knowledge (teams, clients,
-          contracts, pricing, products, business rules, integrations, documents), and anyone can create more (context_create).
+          contracts, pricing, products, business rules, integrations, documents), another stories and worlds (narrative: units, time,
+          hooks, templates, manuscript), and anyone can create more (context_create).
           The graph is the source of truth. Operating contract:
           0) Find where to work: context_list → project_list(contextId). Each context brings its own types, rules and instructions.
           1) ALWAYS start with session_begin (or session_resume if you lost context) and read the briefing (it includes the context's instructions). Write in the project's locale (en or pt).
-          2) Read only the context you need (node_search, node_get, graph_focus, graph_path, facts_list); do not load everything.
-          3) Foundational/critical facts are rules: law must never be broken; norm only with a stated reason.
+          2) Read only the context you need (node_search, node_get, graph_focus, graph_path, facts_list; in the narrative context, writing_context and state_at); do not load everything.
+          3) Foundational/critical facts are rules: law must never be broken; norm only with a stated reason. In stories, secrets (revealAt) must not leak early.
           4) Do not invent facts the user has not confirmed: ask. Cite the source node and its document link when you answer.
-          5) All writes go through propose_changes in coherent batches (dryRun to check first); search for duplicates before creating; update/delete with expectedVersion. Keep long content at its source and store a link.
+          5) All writes go through propose_changes in coherent batches (dryRun to check first); search for duplicates before creating; update/delete with expectedVersion. Keep long content at its source and store a link (narrative prose goes through unit_text_set/unit_text_append).
           6) session_checkpoint at the end of each step.
           Full manual in the resource harness://manual (Portuguese: harness://manual/pt).
 

@@ -114,9 +114,9 @@ const bad4 = await api('POST', `/api/projects/${pid}/changesets`, { operations: 
 const after4 = await api('GET', `/api/projects/${pid}/nodes?q=Temporário`);
 check(bad4.detail && after4.length === 0, 'lote atômico: nada gravado quando uma op falha');
 const bad5 = await api('POST', `/api/projects/${pid}/changesets`, { operations: [{ op: 'upsert_node_type', definition: { name: 'Capítulo', base: 'Unit' } }] }, 400);
-check(bad5.detail.includes('Tipo-base inválido'), 'tipo-base narrativo Unit não existe mais');
+check(bad5.detail.includes('motor narrativo'), 'tipo-base narrativo Unit recusado fora do contexto narrativo');
 const bad6 = await api('POST', `/api/projects/${pid}/changesets`, { operations: [{ op: 'upsert_node_type', definition: { name: 'Prazo', base: 'Concept', attributes: [{ key: 'quando', dataType: 'story_time' }] } }] }, 400);
-check(bad6.detail.includes('dataType inválido'), 'dataType story_time não existe mais');
+check(bad6.detail.includes('motor narrativo'), 'dataType story_time recusado fora do contexto narrativo');
 
 const dry = await api('POST', `/api/projects/${pid}/changesets`, { mode: 'dry_run', operations: [
   { op: 'create_node', ref: '$x', type: 'Sistema', name: 'Dry' },
@@ -145,11 +145,11 @@ await ops(pid, 'editar diretiva', [{ op: 'upsert_directive', id: dirId, text: 'C
 const dirs = (await api('GET', `/api/projects/${pid}/directives`)).filter((x) => x.source === 'project');
 check(dirs.length === 1 && dirs[0].text === 'Cite sempre o documento de origem.' && dirs[0].enabled === false, 'diretiva editada pelo id e desligada');
 
-console.log('# Camada narrativa removida');
-for (const [path, label] of [[`/api/projects/${pid}/outline`, 'outline'], [`/api/projects/${pid}/state-at?entity=${id.$billing}&unit=${id.$doc}`, 'state-at'],
-  ['/api/harness/templates', 'templates'], [`/api/projects/${pid}/threads`, 'threads']]) {
+console.log('# Motor narrativo só no contexto narrativo');
+// the endpoints exist (they serve narrative projects); on this project they simply have nothing to show
+for (const [path, label] of [[`/api/projects/${pid}/outline`, 'outline'], ['/api/harness/templates', 'templates'], [`/api/projects/${pid}/threads`, 'threads']]) {
   const r = await fetch(BASE + path);
-  check(r.status === 404, `endpoint ${label} não existe mais (404)`);
+  check(r.status === 200, `endpoint ${label} responde (200)`);
 }
 
 console.log('# MCP');
@@ -167,7 +167,7 @@ async function mcp(sessionId, method, params, idn) {
 let rpc = 1;
 const init = await mcp(null, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'smoke', version: '1' } }, rpc++);
 const instr = init.msg.result?.instructions ?? '';
-check(instr.includes('session_begin') && !/stories|writing_context|revealAt|unit_text/i.test(instr), 'instructions do harness sem a camada narrativa');
+check(instr.includes('session_begin') && instr.includes('narrative'), 'instructions do harness citam o contexto narrativo');
 await fetch(BASE + '/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': init.sid },
   body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) });
 const sid = init.sid;
@@ -184,9 +184,9 @@ const narrativeTools = ['unit_text_set', 'unit_text_append', 'unit_text_get', 'u
   'manuscript_export', 'writing_context', 'state_at', 'story_outline', 'open_threads', 'milestone_coverage', 'template_list', 'template_apply',
   'template_derive', 'template_upsert', 'template_delete', 'profile_list', 'profile_apply', 'project_settings'];
 check(names.includes('propose_changes') && names.includes('context_create') && names.includes('edge_get'), `tools/list: ${names.length} tools`);
-check(!narrativeTools.some((t) => names.includes(t)), 'nenhuma tool narrativa no MCP');
+check(narrativeTools.every((t) => names.includes(t)), 'tools narrativas no MCP (para o contexto narrativo)');
 const schemaJson = JSON.stringify(tools.find((t) => t.name === 'propose_changes').inputSchema);
-check(schemaJson.includes('expectedVersion') && !/fromUnit|revealAt|"cast"/.test(schemaJson), 'schema de propose_changes sem campos narrativos');
+check(schemaJson.includes('expectedVersion') && /fromUnit/.test(schemaJson), 'schema de propose_changes com os campos narrativos opcionais');
 
 const begin = await tool('session_begin', { projectId: pid, goal: 'smoke test' });
 const briefing = begin.body;
@@ -213,11 +213,11 @@ check(noCtxTool.isError && noCtxTool.text.includes('contextId'), 'project_create
 
 const res = await mcp(sid, 'resources/read', { uri: 'harness://manual' }, rpc++);
 const manual = res.msg.result.contents[0].text;
-check(manual.includes('## Contexts') && !/Narrative time|Manuscript|revealAt|writing_context/.test(manual), 'manual (en) sem a camada narrativa');
+check(manual.includes('## Contexts') && manual.includes('## Narrative context'), 'manual (en) com contextos e a seção do contexto narrativo');
 const resPt = await mcp(sid, 'resources/read', { uri: 'harness://manual/pt' }, rpc++);
 check(resPt.msg.result.contents[0].text.includes('## Contextos'), 'manual (pt)');
 const prompts = (await mcp(sid, 'prompts/list', {}, rpc++)).msg.result.prompts.map((p) => p.name).sort();
-check(JSON.stringify(prompts) === JSON.stringify(['answer_from_graph', 'design_context', 'ingest_document']), 'prompts genéricos: ' + prompts.join(', '));
+check(JSON.stringify(prompts) === JSON.stringify(['answer_from_graph', 'build_world', 'design_context', 'ingest_document', 'start_project', 'write_unit']), 'prompts genéricos e narrativos: ' + prompts.join(', '));
 
 console.log('# Clone com tradução (contexto corporativo)');
 const corp = await api('POST', '/api/contexts/corporate/projects', { name: 'Smoke corp ' + stamp, locale: 'pt' }, 201);

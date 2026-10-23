@@ -19,6 +19,8 @@ import static com.obliterateharness.i18n.I18n.t;
 /** Persistence of the meta-model (node, relation and object types) in Neo4j. */
 @Component
 public class SchemaStore {
+    /** System relation linking narrative units parent → child. */
+    public static final String CONTAINS = "CONTAINS";
 
     private final JsonCodec json;
 
@@ -124,7 +126,7 @@ public class SchemaStore {
         public RelTypeDef requireRelType(String nameOrId) {
             return relType(nameOrId).orElseThrow(() -> new DomainException(t("Relation type '", "Tipo de relação '") + nameOrId
                     + t("' does not exist. Available types: ", "' não existe. Tipos disponíveis: ")
-                    + relTypes.values().stream().map(RelTypeDef::name).distinct().sorted().toList()
+                    + relTypes.values().stream().map(RelTypeDef::name).filter(n -> !n.equals(CONTAINS)).distinct().sorted().toList()
                     + t(". Create it with upsert_rel_type first.", ". Crie o tipo com upsert_rel_type antes.")));
         }
     }

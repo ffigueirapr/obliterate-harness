@@ -1,0 +1,52 @@
+id: save_the_cat
+name: { en: Save the Cat (15 beats), pt: Save the Cat (15 beats) }
+description: { en: "Beat sheet with fixed proportions, widely used in film and commercial fiction.", pt: "Folha de beats com proporções fixas, muito usada em roteiro de cinema e romance comercial." }
+scope: obra
+media: [filme_serie, livro]
+source: "Blake Snyder, Save the Cat! (2005)"
+beats:
+  - { key: { en: opening_image, pt: imagem_de_abertura }, name: { en: Opening image, pt: Imagem de abertura }, position: 0.0,
+      function: { en: "A snapshot of the protagonist's 'before'.", pt: "Retrato do 'antes' do protagonista." },
+      criteria: { en: "An image or scene that sums up the starting state.", pt: "Uma imagem ou cena que resume o estado inicial." } }
+  - { key: { en: theme_stated, pt: tema_declarado }, name: { en: Theme stated, pt: Tema declarado }, position: 0.05, required: false,
+      function: { en: "Someone states the lesson the protagonist will learn.", pt: "Alguém enuncia a lição que o protagonista vai aprender." },
+      criteria: { en: "The theme appears, ideally said to them by another character.", pt: "O tema aparece, de preferência dito a ele por outro personagem." } }
+  - { key: { en: setup, pt: preparacao }, name: { en: Setup, pt: Preparação }, position: 0.06,
+      function: { en: "The protagonist's world, flaws and people.", pt: "Mundo, falhas e pessoas do protagonista." },
+      criteria: { en: "The things that need fixing in their life are clear.", pt: "Ficam claras as coisas que precisam ser consertadas na vida dele." } }
+  - { key: { en: catalyst, pt: catalisador }, name: { en: Catalyst, pt: Catalisador }, position: 0.12,
+      function: { en: "The event that changes everything.", pt: "O evento que muda tudo." },
+      criteria: { en: "An external event pulls the protagonist out of routine.", pt: "Um acontecimento externo tira o protagonista da rotina." } }
+  - { key: { en: debate, pt: debate }, name: Debate, position: 0.18,
+      function: { en: "The protagonist hesitates about what to do.", pt: "O protagonista hesita sobre o que fazer." },
+      criteria: { en: "Explicit doubt: what now? should I go?", pt: "Dúvida explícita: e agora? devo ir?" } }
+  - { key: { en: break_into_two, pt: virada_para_dois }, name: { en: Break into two, pt: Virada para o ato 2 }, position: 0.25,
+      function: { en: "Decision to enter the new world.", pt: "Decisão de entrar no mundo novo." },
+      criteria: { en: "The protagonist chooses to act; the story changes worlds.", pt: "O protagonista escolhe agir; a história muda de mundo." } }
+  - { key: { en: b_story, pt: historia_b }, name: { en: B story, pt: História B }, position: 0.3,
+      function: { en: "Subplot (usually a relationship) that carries the theme.", pt: "Subtrama (geralmente de relação) que carrega o tema." },
+      criteria: { en: "A character/relationship that will teach the theme appears.", pt: "Aparece um personagem/relação que vai ensinar o tema." } }
+  - { key: { en: fun_and_games, pt: diversao_e_jogos }, name: { en: Fun and games, pt: Diversão e jogos }, position: 0.35,
+      function: { en: "The promise of the premise: what the audience came to see.", pt: "A promessa da premissa: o que o público veio ver." },
+      criteria: { en: "Sequences that explore the premise with lightness or spectacle.", pt: "Sequências que exploram a premissa com leveza ou espetáculo." } }
+  - { key: { en: midpoint, pt: ponto_medio }, name: { en: Midpoint, pt: Ponto médio }, position: 0.5,
+      function: { en: "False victory or false defeat; the stakes rise.", pt: "Falsa vitória ou falsa derrota; as apostas sobem." },
+      criteria: { en: "A clear turn and the clock starts ticking.", pt: "Virada clara e o relógio começa a correr." } }
+  - { key: { en: bad_guys_close_in, pt: inimigos_se_aproximam }, name: { en: Bad guys close in, pt: Os inimigos se aproximam }, position: 0.6,
+      function: { en: "External pressure and inner doubts grow.", pt: "Pressão externa e dúvidas internas crescem." },
+      criteria: { en: "The team splits or the antagonist advances.", pt: "O grupo racha ou o antagonista avança." } }
+  - { key: { en: all_is_lost, pt: tudo_perdido }, name: { en: All is lost, pt: Tudo está perdido }, position: 0.75,
+      function: { en: "The lowest point; often with a 'whiff of death'.", pt: "O ponto mais baixo; muitas vezes com 'cheiro de morte'." },
+      criteria: { en: "A significant loss (person, plan, hope).", pt: "Perda significativa (pessoa, plano, esperança)." } }
+  - { key: { en: dark_night, pt: noite_escura }, name: { en: Dark night of the soul, pt: Noite escura da alma }, position: 0.8,
+      function: { en: "The protagonist processes the loss.", pt: "O protagonista processa a perda." },
+      criteria: { en: "A moment of reflection before the final turn.", pt: "Momento de reflexão antes da virada final." } }
+  - { key: { en: break_into_three, pt: virada_para_tres }, name: { en: Break into three, pt: Virada para o ato 3 }, position: 0.82,
+      function: { en: "The solution comes from joining the A and B stories.", pt: "A solução nasce da junção da trama A com a B." },
+      criteria: { en: "A new idea or attitude, born from the learned theme.", pt: "Nova ideia ou atitude, fruto do tema aprendido." } }
+  - { key: { en: finale, pt: final }, name: { en: Finale, pt: Final }, position: 0.9,
+      function: { en: "The protagonist applies what they learned and wins (or fails meaningfully).", pt: "O protagonista aplica o que aprendeu e vence (ou falha com sentido)." },
+      criteria: { en: "The final plan is executed and the conflict is resolved.", pt: "O plano final é executado e o conflito se resolve." } }
+  - { key: { en: final_image, pt: imagem_final }, name: { en: Final image, pt: Imagem final }, position: 1.0,
+      function: { en: "A snapshot of the 'after', mirroring the opening.", pt: "Retrato do 'depois', espelho da abertura." },
+      criteria: { en: "Contrasts with the opening image and shows the change.", pt: "Contrasta com a imagem de abertura e mostra a mudança." } }

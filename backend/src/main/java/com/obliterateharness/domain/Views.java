@@ -36,10 +36,15 @@ public final class Views {
             Map<String, Object> attributes,
             Map<String, String> attributeCriticality,
             Map<String, List<String>> refs,
+            String parent,
+            Double order,
+            String sortKey,
             Long version,
             String createdBy,
             String updatedBy,
-            String updatedAt
+            String updatedAt,
+            /** Words in the unit's manuscript, computed by the server. */
+            Long wordCount
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
@@ -55,9 +60,14 @@ public final class Views {
             String description,
             String criticality,
             List<String> tags,
+            String fromUnit,
+            String toUnit,
             Long version
     ) {}
 
+    /**
+     * @param revealAt unit where the fact is revealed to the reader; before it the fact is a secret
+     */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     public record Fact(
             String id,
@@ -66,7 +76,8 @@ public final class Views {
             String criticality,
             String origin,
             List<Ref> about,
-            Long version
+            Long version,
+            Ref revealAt
     ) {}
 
     public record Ref(String id, String name) {}
@@ -77,9 +88,10 @@ public final class Views {
                             int priority, boolean enabled, String source) {}
 
     /**
-     * @param profile        the context preset its schema came from (built-in contexts), if any
      * @param locale         language of the project's schema and content (en or pt)
-     * @param context        id of the context (domain) the project belongs to
+     * @param styleSample    prose sample that writing_context sends to keep the voice
+     * @param styleReference project whose manuscript is used as a style reference when there is no sample
+     * @param context        id of the context (domain) the project belongs to; null = narrative (projects from before contexts)
      * @param blueprint      true for a context's definition project (holds the context's schema; hidden from project lists)
      */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
@@ -91,6 +103,8 @@ public final class Views {
             boolean requireReviewForLlm,
             String createdAt,
             String locale,
+            String styleSample,
+            String styleReference,
             String context,
             Boolean blueprint
     ) {}
@@ -110,6 +124,11 @@ public final class Views {
 
     /** Indirect link between two visible nodes, with the shortest path connecting them. */
     public record IndirectLink(String from, String to, int hops, List<String> pathNodeIds, List<String> pathRelTypes) {}
+
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    public record OutlineItem(String id, String type, String name, String summary, String status, Long wordCount, List<OutlineItem> children) {}
+
+    public record StateAt(Ref entity, Ref unit, List<Edge> active, List<Edge> ended, List<Edge> notYet) {}
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     public record SchemaSummary(

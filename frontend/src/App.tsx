@@ -4,22 +4,25 @@ import { BASE_COLOR, type GraphCanvasHandle, type SelectMode } from './component
 import { DimToggle, GraphView, useGraphDim } from './components/GraphView';
 import { FilterPanel } from './components/FilterPanel';
 import { BulkEditor, EdgeEditor, IndirectInfo, NodeEditor } from './components/Inspector';
-import { CloneProjectDialog, NewEdgeDialog, NewNodeDialog } from './components/Dialogs';
+import { CloneProjectDialog, NewEdgeDialog, NewNodeDialog, NewProjectDialog } from './components/Dialogs';
 import { SchemaEditor } from './components/SchemaEditor';
-import { AuditPanel, ChangesetsPanel, FactsPanel } from './components/Panels';
-import { DirectivesPanel } from './components/DirectivesPanel';
+import { AuditPanel, ChangesetsPanel, FactsPanel, OutlineTree } from './components/Panels';
+import { DirectivesPanel, StructurePanel, ThreadsPanel, WritingContextPanel } from './components/HarnessPanels';
+import { UnitPanel } from './components/UnitPanel';
 import { ContextHome, ContextPage, ContextSettingsDialog, NewContextDialog, NewProjectInContextDialog, ctxSpaceLabel } from './components/Contexts';
 import { ArchiveActions, ProjectName, RenameButton, RenameInput, importSummary } from './components/Archive';
 import { LAYOUT_KINDS, layoutHint, layoutLabel, type LayoutKind } from './components/graphLayout';
-import type { ContextView, FocusState, ImportResult, IndirectLink, Operation, Project, Schema, ViewFilter, ViewResult } from './types';
+import type { ContextView, FocusState, ImportResult, IndirectLink, Operation, OutlineItem, Project, Schema, ViewFilter, ViewResult } from './types';
 import { baseLabel } from './types';
 import { lang, setLang, t, type Lang } from './i18n';
 
 const EMPTY_FILTER: ViewFilter = { types: [], bases: [], tags: [], spaces: [], minCriticality: '', includeIndirect: false, maxHops: 3, relTypes: [] };
-type Tab = 'all' | 'actors' | 'knowledge' | 'analysis';
+type Tab = 'all' | 'actors' | 'knowledge' | 'story' | 'analysis' | 'templates';
 type ModalKind = 'schema' | 'changesets' | 'facts' | 'audit' | 'newNode' | 'newEdge' | 'newProject' | 'clone'
-  | 'directives' | 'newContext' | 'ctxSettings' | null;
-const ctxOf = (p?: Project) => p?.context;
+  | 'structure' | 'threads' | 'directives' | 'context' | 'unit' | 'newContext' | 'ctxSettings' | null;
+const NARRATIVE = 'narrative';
+const ctxOf = (p?: Project) => p?.context ?? NARRATIVE;
+const EXPORT_FORMATS = ['md', 'docx', 'epub', 'html', 'txt'];
 
 function remember(key: string, value?: string) {
   try {
@@ -40,6 +43,7 @@ export function App() {
   const [projectId, setProjectId] = useState<string | undefined>(() => remember('hm.project') || undefined);
   const [schema, setSchema] = useState<Schema>({ nodeTypes: [], relTypes: [] });
   const [view, setView] = useState<ViewResult | null>(null);
+  const [outline, setOutline] = useState<OutlineItem[]>([]);
   const [tab, setTab] = useState<Tab>('all');
   const [filter, setFilter] = useState<ViewFilter>(EMPTY_FILTER);
   const [mode, setMode] = useState<SelectMode>('pan');
@@ -55,6 +59,8 @@ export function App() {
   const [version, setVersion] = useState(0);
   const [pending, setPending] = useState(0);
   const [renamingTop, setRenamingTop] = useState(false);
+  const [contextUnit, setContextUnit] = useState<string | null>(null);
+  const [styleDraft, setStyleDraft] = useState<{ sample: string; reference: string } | null>(null);
   const canvas = useRef<GraphCanvasHandle>(null);
 
   const notify = useCallback((text: string, error = false) => {
@@ -86,10 +92,11 @@ export function App() {
   // context names and labels follow the interface language
   useEffect(() => { reloadContexts().catch(() => undefined); }, [uiLang, reloadContexts]);
 
-  // schema and pending changesets
+  // schema, outline and pending changesets
   useEffect(() => {
     if (!projectId) return;
     api.schema(projectId).then(setSchema).catch((e) => notify(e.message, true));
+    api.outline(projectId).then(setOutline).catch(() => setOutline([]));
     api.changesets(projectId, 'pending').then((r) => setPending(r.length)).catch(() => setPending(0));
   }, [projectId, version, notify]);
 
@@ -98,7 +105,7 @@ export function App() {
     if (!projectId) return;
     const h = setTimeout(() => {
       if (focusState) {
-        api.focus(projectId, focusState.nodeId, focusState.all).then((r) => {
+        api.focus(projectId, focusState.nodeId, focusState.all, focusState.includeStructure).then((r) => {
           setDistance(r.distance);
           setFocusInfo({ levels: r.levels, byLevel: r.byLevel ?? {}, truncated: r.truncated });
           setView({ nodes: r.nodes, edges: r.edges, indirect: [], contextIds: [], total: r.nodes.length, truncated: r.truncated });
@@ -107,13 +114,13 @@ export function App() {
       }
       setDistance(undefined);
       const f = { ...filter, spaces: tab === 'all' ? [] : [tab] };
-      api.view(projectId, f, false).then(setView).catch((e) => notify(e.message, true));
+      api.view(projectId, f, tab === 'story').then(setView).catch((e) => notify(e.message, true));
     }, 150);
     return () => clearTimeout(h);
   }, [projectId, filter, tab, version, notify, focusState]);
 
   useEffect(() => {
-    setSelNodes([]); setSelEdges([]); setSelIndirect(null); setFocusState(null);
+    setSelNodes([]); setSelEdges([]); setSelIndirect(null); setFocusState(null); setStyleDraft(null);
   }, [projectId]);
 
   // Esc leaves the focus (when no dialog is open)
@@ -143,7 +150,8 @@ export function App() {
   const project = projects.find((p) => p.id === projectId);
   const ctx = contexts.find((c) => c.id === (project ? ctxOf(project) : contextId));
   const isBlueprint = !!project?.blueprint;
-  const tabs: Tab[] = ['all', ...((ctx?.tabs ?? ['actors', 'knowledge', 'analysis']) as Tab[])];
+  const narrativeOn = ctx ? ctx.narrative : true;
+  const tabs: Tab[] = ['all', ...((ctx?.tabs ?? ['actors', 'knowledge', 'story', 'analysis', 'templates']) as Tab[])];
   const ctxProjects = useMemo(() => projects.filter((p) => !p.blueprint && ctxOf(p) === (ctx?.id ?? contextId)), [projects, ctx, contextId]);
   useEffect(() => { if (!tabs.includes(tab)) setTab('all'); }, [ctx?.id]); // eslint-disable-line
   const openProject = (id: string) => { setTab('all'); setFilter(EMPTY_FILTER); setProjectId(id); };
@@ -168,15 +176,15 @@ export function App() {
   const selectedNodes = selNodes.map((id) => nodesById.get(id)).filter((n): n is NonNullable<typeof n> => !!n);
   const startFocus = useCallback((id: string, all: boolean) => {
     const n = nodesById.get(id);
-    setFocusState({ nodeId: id, name: n?.name ?? id, all });
+    setFocusState({ nodeId: id, name: n?.name ?? id, all, includeStructure: !all });
   }, [nodesById]);
   const selectedEdge = selEdges.length === 1 && selNodes.length === 0 ? view?.edges.find((e) => e.id === selEdges[0]) : undefined;
 
   const convertLanguage = async () => {
     if (!project) return;
     const target = project.locale === 'en' ? 'pt' : 'en';
-    const msg = t(`Convert the schema of "${project.name}" to ${target === 'en' ? 'English' : 'Portuguese'}? Types, attribute keys, enum values and relations are renamed and the data migrated. The content (names, summaries, texts) is not translated.\n\nTip: "Clone…" with translation keeps the original untouched.`,
-      `Converter o schema de "${project.name}" para ${target === 'en' ? 'inglês' : 'português'}? Tipos, chaves de atributo, valores de enum e relações são renomeados e os dados migrados. O conteúdo (nomes, resumos, textos) não é traduzido.\n\nDica: "Clonar…" com tradução mantém o original intacto.`);
+    const msg = t(`Convert the schema of "${project.name}" to ${target === 'en' ? 'English' : 'Portuguese'}? Types, attribute keys, enum values, relations and templates are renamed and the data migrated. The content (names, summaries, prose) is not translated.\n\nTip: "Clone…" with translation keeps the original untouched.`,
+      `Converter o schema de "${project.name}" para ${target === 'en' ? 'inglês' : 'português'}? Tipos, chaves de atributo, valores de enum, relações e templates são renomeados e os dados migrados. O conteúdo (nomes, resumos, prosa) não é traduzido.\n\nDica: "Clonar…" com tradução mantém o original intacto.`);
     if (!confirm(msg)) return;
     try {
       const r = await api.localizeProject(project.id, target);
@@ -199,6 +207,17 @@ export function App() {
       const p = r.projects[0];
       if (p.context) setContextId(p.context);
       openProject(p.projectId);
+    }
+  };
+  const saveStyle = async () => {
+    if (!project || !styleDraft) return;
+    try {
+      await api.updateProject(project.id, { styleSample: styleDraft.sample, styleReference: styleDraft.reference });
+      await reloadProjects();
+      setStyleDraft(null);
+      notify(t('Style saved', 'Estilo salvo'));
+    } catch (e) {
+      notify((e as Error).message, true);
     }
   };
 
@@ -233,6 +252,8 @@ export function App() {
         <span className="spacer" />
         {projectId && (
           <>
+            {narrativeOn && <button onClick={() => setModal('structure')}>{t('Structure', 'Estrutura')}</button>}
+            {narrativeOn && <button onClick={() => setModal('threads')}>{t('Hooks', 'Ganchos')}</button>}
             <button onClick={() => setModal('facts')}>{t('Facts', 'Fatos')}</button>
             <button onClick={() => setModal('directives')}>{t('Directives', 'Diretivas')}</button>
             <button onClick={() => setModal('schema')}>Schema</button>
@@ -260,7 +281,7 @@ export function App() {
         )
       ) : (
         <div className="main">
-          <FilterPanel projectId={projectId} schema={schema} filter={filter} setFilter={setFilter} knownTags={knownTags} onFocus={focus} />
+          <FilterPanel projectId={projectId} schema={schema} filter={filter} setFilter={setFilter} knownTags={knownTags} onFocus={focus} narrativeOn={narrativeOn} />
 
           <section className="canvas-wrap">
             <div className="toolbar">
@@ -297,8 +318,13 @@ export function App() {
                   )}
                   {focusInfo?.truncated && <span style={{ color: 'var(--warn)' }}> · {t('node limit reached', 'limite de nós atingido')}</span>}
                 </span>
-                <button className={focusState.all ? '' : 'active'} onClick={() => setFocusState({ ...focusState, all: false })}>{t('Direct', 'Diretos')}</button>
-                <button className={focusState.all ? 'active' : ''} onClick={() => setFocusState({ ...focusState, all: true })}>{t('All linked', 'Todos ligados')}</button>
+                <button className={focusState.all ? '' : 'active'} onClick={() => setFocusState({ ...focusState, all: false, includeStructure: true })}>{t('Direct', 'Diretos')}</button>
+                <button className={focusState.all ? 'active' : ''} onClick={() => setFocusState({ ...focusState, all: true, includeStructure: false })}>{t('All linked', 'Todos ligados')}</button>
+                <label className="check small" title={t('Also follow "chapter inside work". Off, the indirect focus does not reach the whole work through the structure.', 'Seguir também "capítulo dentro de obra". Desligado, o foco indireto não alcança a obra inteira pela estrutura.')}>
+                  <input type="checkbox" checked={focusState.includeStructure}
+                    onChange={(e) => setFocusState({ ...focusState, includeStructure: e.target.checked })} />
+                  <span>{t('follow structure', 'seguir estrutura')}</span>
+                </label>
                 <button onClick={() => canvas.current?.relayout('aneis')} title={t('Arranges in rings by distance to the center', 'Organiza em anéis pela distância até o centro')}>{layoutLabel('aneis')}</button>
                 <button className="primary" onClick={() => setFocusState(null)}>{t('Leave focus (Esc)', 'Sair do foco (Esc)')}</button>
               </div>
@@ -325,13 +351,15 @@ export function App() {
               </div>
             )}
             <div className="legend" aria-label={t('Legend', 'Legenda')}>
-              {Object.entries(BASE_COLOR).slice(0, 8).map(([b, c]) => <span key={b}><i className="dot" style={{ background: c }} />{baseLabel(b)}</span>)}
+              {Object.entries(BASE_COLOR).filter(([b]) => narrativeOn || (b !== 'Unit' && b !== 'Device')).slice(0, 8).map(([b, c]) => <span key={b}><i className="dot" style={{ background: c }} />{baseLabel(b)}</span>)}
             </div>
           </section>
 
           <aside className="inspector">
             {selectedNodes.length === 1 && (
-              <NodeEditor projectId={projectId} nodeId={selectedNodes[0].id} schema={schema} run={run} onFocus={focus} reloadKey={version} />
+              <NodeEditor projectId={projectId} nodeId={selectedNodes[0].id} schema={schema} run={run} onFocus={focus} reloadKey={version}
+                onShowContext={(id) => { setContextUnit(id); setModal('context'); }}
+                onOpenUnit={(id) => { setContextUnit(id); setModal('unit'); }} />
             )}
             {selectedNodes.length > 1 && <BulkEditor nodes={selectedNodes} run={run} onClear={() => canvas.current?.selectIds([])} />}
             {selectedEdge && <EdgeEditor projectId={projectId} edge={selectedEdge} run={run} />}
@@ -354,7 +382,7 @@ export function App() {
                   {project && !isBlueprint ? <ProjectName as="h4" project={project} onRenamed={onRenamed} onError={(m) => notify(m, true)} /> : <h4>{project?.name}</h4>}
                   {project?.description && <p>{project.description}</p>}
                   <p className="small muted">
-                    {project?.profile && <>{t('Preset', 'Preset')}: {project.profile} · </>}{t('Language', 'Idioma')}: <b>{project?.locale === 'en' ? 'English' : 'Português'}</b> · LLM {project?.requireReviewForLlm ? t('needs approval', 'precisa de aprovação') : t('writes directly (audited)', 'grava direto (auditado)')}
+                    {t('Profile', 'Perfil')}: {project?.profile ?? '—'} · {t('Language', 'Idioma')}: <b>{project?.locale === 'en' ? 'English' : 'Português'}</b> · LLM {project?.requireReviewForLlm ? t('needs approval', 'precisa de aprovação') : t('writes directly (audited)', 'grava direto (auditado)')}
                   </p>
                   <label className="check small">
                     <input type="checkbox" checked={!!project?.requireReviewForLlm} onChange={async (e) => {
@@ -369,6 +397,13 @@ export function App() {
                     <button className="small" onClick={convertLanguage} title={t('Converts the schema to the other language', 'Converte o schema para o outro idioma')}>
                       {project?.locale === 'en' ? t('Convert to Portuguese…', 'Converter para português…') : t('Convert to English…', 'Converter para inglês…')}
                     </button>
+                    {narrativeOn && <select className="small" value="" aria-label={t('Export manuscript', 'Exportar manuscrito')} onChange={(e) => {
+                      if (e.target.value) window.open(api.exportUrl(projectId, e.target.value), '_blank');
+                      e.target.value = '';
+                    }}>
+                      <option value="">{t('Export manuscript…', 'Exportar manuscrito…')}</option>
+                      {EXPORT_FORMATS.map((f) => <option key={f} value={f}>.{f}</option>)}
+                    </select>}
                   </div>}
                   {!isBlueprint && <button className="danger small" style={{ marginTop: 8 }} onClick={async () => {
                     if (!project) return;
@@ -386,12 +421,44 @@ export function App() {
                     }
                   }}>{t('Delete project…', 'Excluir projeto…')}</button>}
                 </div>
+                {narrativeOn && <div className="section">
+                  <h4>{t('Narrative structure', 'Estrutura narrativa')}</h4>
+                  <OutlineTree items={outline} onFocus={focus} />
+                </div>}
+                {narrativeOn && <div className="section">
+                  <h4>{t('Writing style', 'Estilo de escrita')}</h4>
+                  {styleDraft ? (
+                    <>
+                      <div className="field"><label>{t('Style sample (a passage whose voice the LLM should keep)', 'Amostra de estilo (um trecho cuja voz a LLM deve manter)')}</label>
+                        <textarea rows={5} value={styleDraft.sample} onChange={(e) => setStyleDraft({ ...styleDraft, sample: e.target.value })} /></div>
+                      <div className="field"><label>{t('Or take the style from another project', 'Ou usar o estilo de outro projeto')}</label>
+                        <select value={styleDraft.reference} onChange={(e) => setStyleDraft({ ...styleDraft, reference: e.target.value })}>
+                          <option value="">—</option>
+                          {projects.filter((p) => p.id !== projectId).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select></div>
+                      <div className="row">
+                        <button className="primary" onClick={saveStyle}>{t('Save', 'Salvar')}</button>
+                        <button className="fixed" onClick={() => setStyleDraft(null)}>{t('Cancel', 'Cancelar')}</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="small muted">{project?.styleSample
+                        ? `“${project.styleSample.slice(0, 160)}${project.styleSample.length > 160 ? '…' : ''}”`
+                        : project?.styleReference
+                          ? `${t('From', 'De')}: ${projects.find((p) => p.id === project.styleReference)?.name ?? project.styleReference}`
+                          : t('None. writing_context sends a style sample to the LLM when you set one.', 'Nenhum. O writing_context envia uma amostra de estilo para a LLM quando você define uma.')}</p>
+                      <button className="small" onClick={() => setStyleDraft({ sample: project?.styleSample ?? '', reference: project?.styleReference ?? '' })}>{t('Edit style', 'Editar estilo')}</button>
+                    </>
+                  )}
+                </div>}
                 <div className="section">
                   <h4>{t('How to use', 'Como usar')}</h4>
                   <ul className="small muted" style={{ paddingLeft: 16, margin: 0 }}>
                     <li>{t('Click a node to edit it; Shift/Ctrl+click adds to the selection.', 'Clique num nó para editar; Shift/Ctrl+clique soma à seleção.')}</li>
                     <li>{t('Box and Lasso modes select many nodes at once for bulk editing or deleting.', 'Modos Área e Laço selecionam vários nós de uma vez para edição ou exclusão em lote.')}</li>
                     <li>{t('Select 2 nodes and use "+ Relation".', 'Selecione 2 nós e use “+ Relação”.')}</li>
+                    {narrativeOn && <li>{t('Select a chapter/scene to open its manuscript, cast and writing context.', 'Selecione um capítulo/cena para abrir manuscrito, elenco e contexto de escrita.')}</li>}
                     <li>{t('"Show indirect" reveals nodes linked through others (dashed line).', '“Mostrar indiretas” revela nós ligados através de outros (linha tracejada).')}</li>
                   </ul>
                 </div>
@@ -411,6 +478,13 @@ export function App() {
           setModal(null);
           await Promise.all([reloadProjects(), reloadContexts()]);
           openProject(p.id);
+        }} />
+      )}
+      {modal === 'newProject' && !ctx && (
+        <NewProjectDialog onClose={() => setModal(null)} onCreated={async (id) => {
+          setModal(null);
+          await reloadProjects();
+          openProject(id);
         }} />
       )}
       {modal === 'newContext' && (
@@ -438,7 +512,18 @@ export function App() {
       {modal === 'schema' && projectId && <SchemaEditor schema={schema} run={run} onClose={() => setModal(null)} />}
       {modal === 'changesets' && projectId && <ChangesetsPanel projectId={projectId} onClose={() => setModal(null)} onChanged={() => setVersion((v) => v + 1)} />}
       {modal === 'facts' && projectId && <FactsPanel projectId={projectId} onClose={() => setModal(null)} onFocus={focus} />}
+      {modal === 'structure' && project && (
+        <StructurePanel project={project} projects={projects} schema={schema} run={run} onClose={() => { setModal(null); setVersion((v) => v + 1); }} onFocus={focus} />
+      )}
+      {modal === 'threads' && projectId && <ThreadsPanel projectId={projectId} schema={schema} run={run} onClose={() => setModal(null)} onFocus={focus} />}
       {modal === 'directives' && projectId && <DirectivesPanel projectId={projectId} schema={schema} run={run} onClose={() => setModal(null)} />}
+      {modal === 'context' && projectId && contextUnit && (
+        <WritingContextPanel projectId={projectId} unitId={contextUnit} onClose={() => setModal(null)} onFocus={focus} />
+      )}
+      {modal === 'unit' && projectId && contextUnit && (
+        <UnitPanel projectId={projectId} unitId={contextUnit} schema={schema} onClose={() => setModal(null)}
+          onChanged={() => setVersion((v) => v + 1)} onFocus={focus} />
+      )}
       {modal === 'audit' && projectId && <AuditPanel projectId={projectId} onClose={() => setModal(null)} />}
       {modal === 'newNode' && projectId && (
         <NewNodeDialog projectId={projectId} schema={schema} defaultSpace={tab === 'all' ? undefined : tab} run={run}

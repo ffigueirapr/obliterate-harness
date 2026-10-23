@@ -1,7 +1,6 @@
 // End-to-end test of export/import (obliterate-archive) and project renaming (REST + MCP): builds a project in a custom
-// context with node_ref attributes, composites, mirrored and manual facts and directives, exports it, imports it back and
-// compares everything; then the error cases (format, version, broken refs, all or nothing), old archives with narrative
-// fields (ignored) and the context recreation.
+// context with node_ref attributes, time anchors, mirrored and manual facts and directives, exports it, imports it back and
+// compares everything; then the error cases (format, version, broken refs, all or nothing) and the context recreation.
 // Usage: node scripts/smoke_archive.mjs [http://127.0.0.1:8180] [--project <id>] [--keep]
 //   --project <id>  also round-trips an existing project (export → import as a copy → compare → delete the copy)
 const BASE = process.argv.find((a) => a.startsWith('http')) ?? 'http://127.0.0.1:8180';
@@ -56,10 +55,11 @@ function shape(p) {
     relTypes: sort((p.schema.relTypes ?? []).map(({ id, ...rest }) => rest)),
     objectTypes: sort((p.schema.objectTypes ?? []).map(({ id, ...rest }) => rest)),
     nodes: sort(p.nodes.map((n) => ({ type: n.type, name: n.name, summary: n.summary, tags: n.tags, criticality: n.criticality, space: n.space,
-      attributes: swap(n.attributes), refs: swap(n.refs), attributeCriticality: n.attributeCriticality, version: n.version }))),
+      attributes: swap(n.attributes), refs: swap(n.refs), attributeCriticality: n.attributeCriticality, order: n.order, version: n.version }))),
     edges: sort(p.edges.map((e) => ({ kind: e.kind, relType: e.relType, from: names.get(e.from), to: names.get(e.to), attrKey: e.attrKey, description: e.description,
-      criticality: e.criticality, version: e.version }))),
-    facts: sort(p.facts.map((f) => ({ text: f.text, rigidity: f.rigidity, criticality: f.criticality, originKind: f.originKind, about: (f.about ?? []).map((a) => names.get(a)).sort() }))),
+      criticality: e.criticality, fromUnit: names.get(e.fromUnit), toUnit: names.get(e.toUnit), version: e.version }))),
+    facts: sort(p.facts.map((f) => ({ text: f.text, rigidity: f.rigidity, criticality: f.criticality, originKind: f.originKind, about: (f.about ?? []).map((a) => names.get(a)).sort(),
+      revealAt: names.get(f.revealAt) }))),
     directives: sort(p.directives.map((d) => ({ text: d.text, when: d.when, types: d.types, priority: d.priority, enabled: d.enabled }))),
   };
 }
@@ -80,30 +80,35 @@ const stamp = Date.now();
 try {
   console.log('# Source: a custom context and a project with every kind of record');
   const ctx = await call('POST', '/api/contexts', { name: 'Smoke archive ctx ' + stamp, description: 'archive test', icon: '📦', locale: 'en',
-    baseContext: 'corporate', instructions: 'Archive smoke instructions.' });
+    baseContext: 'narrative', instructions: 'Archive smoke instructions.' }); // narrative base: units, time anchors and secrets live there
   created.contexts.push(ctx);
   const src = await call('POST', `/api/contexts/${ctx.id}/projects`, { name: 'Smoke archive ' + stamp, description: 'source', locale: 'en' });
   created.projects.push(src);
   const pid = src.id;
   const schemaCs = await call('POST', `/api/projects/${pid}/changesets`, { title: 'schema', operations: [
+    { op: 'upsert_node_type', definition: { name: 'Team', base: 'Agent' } },
     { op: 'upsert_object_type', definition: { name: 'Sla', fields: [{ key: 'hours', dataType: 'int' }, { key: 'tier', dataType: 'string_short' }] } },
-    { op: 'upsert_node_type', definition: { name: 'System', base: 'Object', attributes: [
+    { op: 'upsert_node_type', definition: { name: 'System', base: 'Device', attributes: [
       { key: 'level', dataType: 'enum', options: ['low', 'high'] },
       { key: 'owner', dataType: 'node_ref', refType: 'Team' },
       { key: 'depends_on', dataType: 'list', itemType: 'node_ref' },
       { key: 'sla', dataType: 'composite', objectType: 'Sla' },
       { key: 'notes', dataType: 'text_long' },
     ] } },
+    { op: 'upsert_node_type', definition: { name: 'Phase', base: 'Unit' } },
     { op: 'upsert_rel_type', definition: { name: 'FEEDS', base: 'CAUSAL', allowed: [{ from: 'System', to: 'System' }] } },
   ] });
   ok(schemaCs.status === 'applied', 'schema applied');
   const data = await call('POST', `/api/projects/${pid}/changesets`, { title: 'data', operations: [
     { op: 'create_node', ref: '$team', type: 'Team', name: 'Payments squad', attributes: {} },
+    { op: 'create_node', ref: '$p1', type: 'Phase', name: 'Phase 1' },
+    { op: 'create_node', ref: '$p2', type: 'Phase', name: 'Phase 2' },
+    { op: 'create_node', ref: '$p3', type: 'Phase', name: 'Phase 3', parent: '$p1' },
     { op: 'create_node', ref: '$core', type: 'System', name: 'Core ledger', summary: 'Book of record', tags: ['Core', 'tier1'], criticality: 'critical',
       attributes: { level: 'high', owner: '$team', notes: 'Never write directly.' }, attributeCriticality: { notes: 'foundational' } },
     { op: 'create_node', ref: '$api', type: 'System', name: 'Public API', attributes: { level: 'low', owner: '$team', depends_on: ['$core'] } },
-    { op: 'create_edge', relType: 'FEEDS', from: '$api', to: '$core', description: 'writes go through the API', criticality: 'critical' },
-    { op: 'create_fact', text: 'The ledger is append-only', rigidity: 'law', criticality: 'foundational', about: ['$core'] },
+    { op: 'create_edge', relType: 'FEEDS', from: '$api', to: '$core', description: 'writes go through the API', criticality: 'critical', fromUnit: '$p1', toUnit: '$p2' },
+    { op: 'create_fact', text: 'The ledger is append-only', rigidity: 'law', criticality: 'foundational', about: ['$core'], revealAt: '$p2' },
     { op: 'upsert_directive', text: 'Always name the owning team.', definition: { when: ['context'], types: ['System'], priority: 5 } },
   ] });
   ok(data.status === 'applied', 'data applied');
@@ -148,14 +153,12 @@ try {
   ok(xcore.id === id.$core && xcore.refs?.owner?.[0] === id.$team && xcore.attributes.sla.hours === 4 && xcore.version === 2, 'nodes keep ids, plain attributes and version');
   ok(xcore.attributeCriticality?.notes === 'foundational', 'attribute criticality');
   const feed = p.edges.find((e) => e.relType === 'FEEDS');
-  ok(feed.description === 'writes go through the API' && feed.criticality === 'critical' && feed.version === 1, 'edges with description, criticality and version');
-  ok(p.edges.some((e) => e.kind === 'attr' && e.attrKey === 'owner'), 'attribute (node_ref) edges');
-  ok(p.facts.some((f) => f.originKind === 'manual' && f.about?.[0] === id.$core) && p.facts.some((f) => f.originKind === 'edge'), 'manual and mirrored facts');
+  ok(feed.fromUnit === id.$p1 && feed.toUnit === id.$p2 && feed.description === 'writes go through the API', 'edges with anchors and description');
+  ok(p.edges.some((e) => e.kind === 'attr' && e.attrKey === 'owner') && p.edges.some((e) => e.kind === 'structure'), 'attribute and structure edges');
+  ok(p.facts.some((f) => f.originKind === 'manual' && f.revealAt === id.$p2) && p.facts.some((f) => f.originKind === 'edge'), 'manual (revealAt) and mirrored facts');
   ok(p.directives.some((d) => d.text === 'Always name the owning team.' && d.priority === 5), 'directives');
   ok(p.counts.nodes === p.nodes.length && p.counts.edges === p.edges.length && p.counts.facts === p.facts.length, 'counts match the records');
-  const flat = JSON.stringify(arch);
-  ok(!['unit_text', '"templates"', 'fromUnit', 'toUnit', 'revealAt', 'styleSample', 'styleReference', '"order"', 'sortKey', 'wordCount', 'CONTAINS', '"structure"']
-    .some((k) => flat.includes(k)), 'no narrative fields (anchors, revealAt, style, structure, units)');
+  ok(!JSON.stringify(arch).includes('unit_text') && !JSON.stringify(arch).includes('"beats"'), 'nothing from the relational side (text drafts, template library)');
 
   console.log('# Import (multipart) and round trip');
   const fd = new FormData();
@@ -182,7 +185,7 @@ try {
   const search = await call('GET', `/api/projects/${copy.projectId}/nodes?q=ledger`);
   ok(search.some((n) => n.id === bcore.id), 'search finds imported nodes');
   const facts = await call('GET', `/api/projects/${copy.projectId}/facts?minCriticality=foundational`);
-  ok(facts.some((f) => f.text === 'The ledger is append-only' && f.about?.[0]?.id === bcore.id), 'facts point to the new nodes');
+  ok(facts.some((f) => f.text === 'The ledger is append-only' && f.revealAt?.id === back.nodes.find((n) => n.name === 'Phase 2').id), 'facts keep revealAt on the new unit');
   const edit = await call('POST', `/api/projects/${copy.projectId}/changesets`, { title: 'edit copy', operations: [
     { op: 'update_node', id: bcore.id, expectedVersion: 2, summary: 'edited in the copy' }] });
   ok(edit.status === 'applied', 'imported nodes accept updates with their version');
@@ -205,37 +208,11 @@ try {
   const badType = structuredClone(arch);
   badType.projects[0].nodes[0].typeId = 'nt_missing';
   ok((await refused('POST', '/api/import', badType))?.includes('schema'), 'node with a type outside the schema');
-  const noBase = structuredClone(arch);
-  delete noBase.projects[0].schema.nodeTypes[0].base;
-  ok((await refused('POST', '/api/import', noBase))?.includes('base'), 'node type without base');
+  const badCrit = structuredClone(arch);
+  badCrit.projects[0].nodes.at(-1).base = 'Nope';
+  badCrit.projects[0].schema.nodeTypes[0].base = 'Nope';
+  ok((await refused('POST', '/api/import', badCrit)) !== null, 'invalid base kind');
   ok((await call('GET', '/api/projects?all=true')).length === before, 'no project was created by the failed imports');
-
-  console.log('# Old archive with narrative fields (ignored)');
-  const old = structuredClone(arch);
-  const op = old.projects[0];
-  op.settings = { ...op.settings, styleSample: 'Once upon a time', styleReference: 'p_other' };
-  op.schema.nodeTypes.push({ id: 'nt_oldunit', name: 'Chapter', base: 'Unit', attributes: [{ key: 'text', dataType: 'text_long', role: 'manuscript' }] });
-  const sys = op.schema.nodeTypes.find((t) => t.name === 'System');
-  sys.attributes.push({ key: 'when', dataType: 'story_time' }, { key: 'hidden', dataType: 'string_short', role: 'secret' });
-  op.nodes.push({ id: 'n_oldch1', typeId: 'nt_oldunit', type: 'Chapter', base: 'Unit', name: 'Chapter 1', attributes: { text: 'prose' }, order: 1 });
-  op.nodes.push({ id: 'n_oldch2', typeId: 'nt_oldunit', type: 'Chapter', base: 'Unit', name: 'Chapter 2', attributes: {}, order: 2 });
-  const ocore = op.nodes.find((n) => n.name === 'Core ledger');
-  ocore.attributes = { ...ocore.attributes, when: 'day 3', hidden: 'shh' };
-  ocore.extra = { ...(ocore.extra ?? {}), sortKey: '0001', wordCount: 12 };
-  op.schema.nodeTypes.push({ id: 'nt_olddev', name: 'Gadget', base: 'Nope', attributes: [] });
-  op.edges.push({ id: 'e_olds', kind: 'structure', relType: 'CONTAINS', from: 'n_oldch1', to: 'n_oldch2' });
-  op.edges.find((e) => e.relType === 'FEEDS').fromUnit = 'n_oldch1';
-  op.facts.find((f) => f.originKind === 'manual').revealAt = 'n_oldch2';
-  const oldRes = await call('POST', `/api/import?name=${encodeURIComponent('Smoke archive old ' + stamp)}`, old);
-  created.projects.push({ id: oldRes.projects[0].projectId, name: oldRes.projects[0].name });
-  ok(oldRes.projects[0].counts.nodes === p.counts.nodes && oldRes.projects[0].counts.edges === p.counts.edges, 'units and structure left out, the rest imported');
-  ok(oldRes.notes?.some((n) => n.includes('Unit')), 'a note says unit types were left out');
-  ok(oldRes.notes?.some((n) => n.includes('Gadget') && n.includes('Object')), 'an unknown base kind is imported as Object, with a note');
-  const oldSchema = await call('GET', `/api/projects/${oldRes.projects[0].projectId}/schema`);
-  ok(oldSchema.nodeTypes.some((t) => t.name === 'Gadget' && t.base === 'Object'), 'Gadget type exists with base Object');
-  const oldBack = (await call('GET', `/api/projects/${oldRes.projects[0].projectId}/export`)).projects[0];
-  oldBack.schema.nodeTypes = oldBack.schema.nodeTypes.filter((t) => t.name !== 'Gadget');
-  compare(p, oldBack, 'old archive');
 
   console.log('# Context recreation');
   const moved = structuredClone(arch);

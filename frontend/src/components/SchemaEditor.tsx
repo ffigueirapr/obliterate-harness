@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Modal } from './Dialogs';
 import { BASE_COLOR } from './GraphCanvas';
 import type { AttrDef, NodeTypeDef, ObjectTypeDef, Operation, RelTypeDef, Schema } from '../types';
-import { BASES, DATA_TYPES, REL_BASES, baseLabel, critLabel } from '../types';
+import { BASES, DATA_TYPES, REL_BASES, baseLabel, critLabel, offeredIn } from '../types';
 import { t } from '../i18n';
 
 type Run = (title: string, ops: Operation[]) => Promise<boolean>;
@@ -11,8 +11,9 @@ type Sel = { kind: 'node'; def: Partial<NodeTypeDef> } | { kind: 'rel'; def: Par
 /** Attribute roles the engine understands, whatever the attribute is called. */
 const ROLES = ['manuscript', 'word_count', 'location', 'secret', 'link'];
 
-export function SchemaEditor({ schema, run, onClose }: { schema: Schema; run: Run; onClose: () => void }) {
+export function SchemaEditor({ schema, run, onClose, narrativeOn }: { schema: Schema; run: Run; onClose: () => void; narrativeOn: boolean }) {
   const [sel, setSel] = useState<Sel>(schema.nodeTypes[0] ? { kind: 'node', def: schema.nodeTypes[0] } : null);
+  const offered = offeredIn(narrativeOn);
   const rels = schema.relTypes.filter((r) => r.name !== 'CONTAINS');
   const isSel = (kind: string, id?: string) => sel?.kind === kind && sel.def.id === id;
   return (
@@ -43,13 +44,16 @@ export function SchemaEditor({ schema, run, onClose }: { schema: Schema; run: Ru
           </div>
         </div>
         <div>
-          {!sel && <p className="muted">{t('Start by creating node types (e.g. Character with base Agent, Chapter with base Narrative unit).',
-            'Comece criando tipos de nó (ex.: Personagem com base Agente, Capítulo com base Unidade narrativa).')}</p>}
+          {!sel && <p className="muted">{narrativeOn
+            ? t('Start by creating node types (e.g. Character with base Agent, Chapter with base Narrative unit).',
+              'Comece criando tipos de nó (ex.: Personagem com base Agente, Capítulo com base Unidade narrativa).')
+            : t('Start by creating node types (e.g. Team with base Agent, Product with base Object).',
+              'Comece criando tipos de nó (ex.: Time com base Agente, Produto com base Objeto).')}</p>}
           <p className="small muted">{t('⚙ = used by the engine (system key): it finds the type by the key, whatever its name or language.',
             '⚙ = usado pelo motor (chave de sistema): ele acha o tipo pela chave, seja qual for o nome ou idioma.')}</p>
-          {sel?.kind === 'node' && <NodeTypeForm key={sel.def.id ?? 'new'} def={sel.def} schema={schema} run={run} onSaved={() => setSel(null)} />}
-          {sel?.kind === 'rel' && <RelTypeForm key={sel.def.id ?? 'new'} def={sel.def} schema={schema} run={run} onSaved={() => setSel(null)} />}
-          {sel?.kind === 'object' && <ObjectTypeForm key={sel.def.id ?? 'new'} def={sel.def} schema={schema} run={run} onSaved={() => setSel(null)} />}
+          {sel?.kind === 'node' && <NodeTypeForm key={sel.def.id ?? 'new'} def={sel.def} schema={schema} run={run} offered={offered} onSaved={() => setSel(null)} />}
+          {sel?.kind === 'rel' && <RelTypeForm key={sel.def.id ?? 'new'} def={sel.def} schema={schema} run={run} offered={offered} onSaved={() => setSel(null)} />}
+          {sel?.kind === 'object' && <ObjectTypeForm key={sel.def.id ?? 'new'} def={sel.def} schema={schema} run={run} offered={offered} onSaved={() => setSel(null)} />}
         </div>
       </div>
     </Modal>
@@ -60,7 +64,9 @@ function strip<T extends object>(o: T): T {
   return JSON.parse(JSON.stringify(o, (_k, v) => (v === '' || v === null ? undefined : v)));
 }
 
-function NodeTypeForm({ def, schema, run, onSaved }: { def: Partial<NodeTypeDef>; schema: Schema; run: Run; onSaved: () => void }) {
+type Offered = (x: string) => boolean;
+
+function NodeTypeForm({ def, schema, run, offered, onSaved }: { def: Partial<NodeTypeDef>; schema: Schema; run: Run; offered: Offered; onSaved: () => void }) {
   const [d, setD] = useState<Partial<NodeTypeDef>>(def);
   const save = async () => {
     const definition = strip({ name: d.name, base: d.base, description: d.description, color: d.color, strict: d.strict ?? true,
@@ -73,7 +79,7 @@ function NodeTypeForm({ def, schema, run, onSaved }: { def: Partial<NodeTypeDef>
         <div className="field"><label>{t('Name', 'Nome')}</label><input value={d.name ?? ''} onChange={(e) => setD({ ...d, name: e.target.value })} /></div>
         <div className="field"><label>{t('Base kind', 'Tipo-base')}</label>
           <select value={d.base} onChange={(e) => setD({ ...d, base: e.target.value })}>
-            {BASES.map((b) => <option key={b} value={b}>{baseLabel(b)} ({b})</option>)}
+            {BASES.filter((b) => offered(b) || b === d.base).map((b) => <option key={b} value={b}>{baseLabel(b)} ({b})</option>)}
           </select></div>
         <div className="field fixed" style={{ width: 70 }}><label>{t('Color', 'Cor')}</label>
           <input type="color" value={d.color ?? BASE_COLOR[d.base ?? 'Note'] ?? '#888888'} onChange={(e) => setD({ ...d, color: e.target.value })} style={{ padding: 0, height: 30 }} /></div>
@@ -83,7 +89,7 @@ function NodeTypeForm({ def, schema, run, onSaved }: { def: Partial<NodeTypeDef>
       <label className="check"><input type="checkbox" checked={d.strict ?? true} onChange={(e) => setD({ ...d, strict: e.target.checked })} />
         <span>{t('Reject attributes not in this list (recommended to keep the LLM on track)', 'Rejeitar atributos fora desta lista (recomendado para manter a LLM nos trilhos)')}</span></label>
       <h4 className="small muted" style={{ margin: '12px 0 4px' }}>{t('ATTRIBUTES', 'ATRIBUTOS')}</h4>
-      <AttrTable attrs={d.attributes ?? []} schema={schema} allowRefs onChange={(a) => setD({ ...d, attributes: a })} />
+      <AttrTable attrs={d.attributes ?? []} schema={schema} allowRefs offered={offered} onChange={(a) => setD({ ...d, attributes: a })} />
       <div className="row" style={{ marginTop: 12 }}>
         <button className="primary" disabled={!d.name?.trim()} onClick={save}>{t('Save type', 'Salvar tipo')}</button>
         {d.id && <button className="danger fixed" onClick={() => confirm(t(`Delete the type ${d.name}? It only works if it has no nodes.`, `Excluir o tipo ${d.name}? Só funciona se não houver nós dele.`)) &&
@@ -93,7 +99,7 @@ function NodeTypeForm({ def, schema, run, onSaved }: { def: Partial<NodeTypeDef>
   );
 }
 
-function ObjectTypeForm({ def, schema, run, onSaved }: { def: Partial<ObjectTypeDef>; schema: Schema; run: Run; onSaved: () => void }) {
+function ObjectTypeForm({ def, schema, run, offered, onSaved }: { def: Partial<ObjectTypeDef>; schema: Schema; run: Run; offered: Offered; onSaved: () => void }) {
   const [d, setD] = useState<Partial<ObjectTypeDef>>(def);
   const save = async () => {
     if (await run(`${t('Object', 'Objeto')} ${d.name}`, [{ op: 'upsert_object_type', id: d.id, definition: strip({ name: d.name, description: d.description, fields: d.fields ?? [] }) }])) onSaved();
@@ -104,16 +110,17 @@ function ObjectTypeForm({ def, schema, run, onSaved }: { def: Partial<ObjectType
         'Objetos customizados são estruturas reutilizáveis para atributos do tipo composite (ex.: Ficha de Status com força e agilidade).')}</p>
       <div className="field"><label>{t('Name', 'Nome')}</label><input value={d.name ?? ''} onChange={(e) => setD({ ...d, name: e.target.value })} /></div>
       <div className="field"><label>{t('Description', 'Descrição')}</label><input value={d.description ?? ''} onChange={(e) => setD({ ...d, description: e.target.value })} /></div>
-      <AttrTable attrs={d.fields ?? []} schema={schema} allowRefs={false} onChange={(a) => setD({ ...d, fields: a })} />
+      <AttrTable attrs={d.fields ?? []} schema={schema} allowRefs={false} offered={offered} onChange={(a) => setD({ ...d, fields: a })} />
       <button className="primary" style={{ marginTop: 12 }} disabled={!d.name?.trim()} onClick={save}>{t('Save object', 'Salvar objeto')}</button>
     </div>
   );
 }
 
-function AttrTable({ attrs, schema, allowRefs, onChange }: { attrs: AttrDef[]; schema: Schema; allowRefs: boolean; onChange: (a: AttrDef[]) => void }) {
+function AttrTable({ attrs, schema, allowRefs, offered, onChange }: { attrs: AttrDef[]; schema: Schema; allowRefs: boolean; offered: Offered; onChange: (a: AttrDef[]) => void }) {
   const set = (i: number, patch: Partial<AttrDef>) => onChange(attrs.map((a, j) => (j === i ? { ...a, ...patch } : a)));
-  const types = DATA_TYPES.filter((x) => allowRefs || x !== 'node_ref');
-  const typeOptions = ['*', ...BASES.map((b) => '@' + b), ...schema.nodeTypes.map((x) => x.name)];
+  const types = DATA_TYPES.filter((x) => (allowRefs || x !== 'node_ref') && offered(x));
+  const typeOptions = ['*', ...BASES.filter(offered).map((b) => '@' + b), ...schema.nodeTypes.map((x) => x.name)];
+  const roles = ROLES.filter(offered);
   return (
     <div style={{ overflowX: 'auto' }}>
       <table>
@@ -169,7 +176,7 @@ function AttrTable({ attrs, schema, allowRefs, onChange }: { attrs: AttrDef[]; s
                   <td>
                     <select value={a.role ?? ''} onChange={(e) => set(i, { role: e.target.value || undefined })}>
                       <option value="">—</option>
-                      {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                      {roles.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </td>
                 )}
@@ -184,9 +191,9 @@ function AttrTable({ attrs, schema, allowRefs, onChange }: { attrs: AttrDef[]; s
   );
 }
 
-function RelTypeForm({ def, schema, run, onSaved }: { def: Partial<RelTypeDef>; schema: Schema; run: Run; onSaved: () => void }) {
+function RelTypeForm({ def, schema, run, offered, onSaved }: { def: Partial<RelTypeDef>; schema: Schema; run: Run; offered: Offered; onSaved: () => void }) {
   const [d, setD] = useState<Partial<RelTypeDef>>(def);
-  const endpoints = ['*', ...BASES.map((b) => '@' + b), ...schema.nodeTypes.map((x) => x.name)];
+  const endpoints = ['*', ...BASES.filter(offered).map((b) => '@' + b), ...schema.nodeTypes.map((x) => x.name)];
   const allowed = d.allowed ?? [];
   const save = async () => {
     const definition = strip({ name: d.name, base: d.base, description: d.description, symmetric: d.symmetric ?? false,
@@ -199,7 +206,7 @@ function RelTypeForm({ def, schema, run, onSaved }: { def: Partial<RelTypeDef>; 
         <div className="field"><label>{t('Name', 'Nome')}</label><input value={d.name ?? ''} placeholder={t('HATES', 'ODEIA')} onChange={(e) => setD({ ...d, name: e.target.value })} /></div>
         <div className="field"><label>{t('Base kind', 'Tipo-base')}</label>
           <select value={d.base} onChange={(e) => setD({ ...d, base: e.target.value })}>
-            {REL_BASES.filter((b) => b !== 'STRUCTURE').map((b) => <option key={b}>{b}</option>)}
+            {REL_BASES.filter((b) => b !== 'STRUCTURE' && (offered(b) || b === d.base)).map((b) => <option key={b}>{b}</option>)}
           </select></div>
       </div>
       {d.systemKey && <p className="small muted">⚙ {t('System key', 'Chave de sistema')}: <code>{d.systemKey}</code></p>}

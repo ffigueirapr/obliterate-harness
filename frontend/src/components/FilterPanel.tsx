@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { BASE_COLOR } from './GraphCanvas';
 import type { GNode, Schema, ViewFilter } from '../types';
-import { BASES, baseLabel } from '../types';
+import { BASES, baseLabel, offeredIn } from '../types';
 import { t } from '../i18n';
 
 interface Props {
@@ -17,9 +17,9 @@ interface Props {
 
 const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
-export function FilterPanel({ projectId, schema, filter, setFilter, knownTags, onFocus, narrativeOn = true }: Props) {
+export function FilterPanel({ projectId, schema, filter, setFilter, knownTags, onFocus, narrativeOn = false }: Props) {
   // Unit and Device only exist in the narrative context
-  const bases = BASES.filter((b) => narrativeOn || (b !== 'Unit' && b !== 'Device'));
+  const bases = BASES.filter(offeredIn(narrativeOn));
   const [q, setQ] = useState('');
   const [results, setResults] = useState<GNode[]>([]);
   const [tagDraft, setTagDraft] = useState('');

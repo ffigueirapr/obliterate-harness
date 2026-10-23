@@ -6,6 +6,10 @@ export const BASES = ['Agent', 'Place', 'Object', 'Ability', 'Concept', 'Event',
 export const REL_BASES = ['STRUCTURE', 'PARTICIPATION', 'SOCIAL', 'POSSESSION', 'SPATIAL', 'CAUSAL', 'KNOWLEDGE', 'ORIGIN', 'SETUP_PAYOFF', 'REFERENCE'] as const;
 export const DATA_TYPES = ['int', 'decimal', 'bool', 'string_short', 'text_long', 'enum', 'story_time', 'json', 'node_ref', 'list', 'composite', 'media'] as const;
 export const SPACES = ['actors', 'knowledge', 'story', 'analysis', 'templates'] as const;
+/** Building blocks of the narrative engine: they only exist in the narrative context (and contexts based on it). */
+const NARRATIVE_ONLY = new Set<string>(['Unit', 'Device', 'STRUCTURE', 'SETUP_PAYOFF', 'story_time', 'manuscript', 'word_count', 'location', 'secret']);
+/** Filter for base kinds, relation bases, data types and attribute roles: hides the narrative ones outside the narrative engine. */
+export const offeredIn = (narrativeOn: boolean) => (x: string) => narrativeOn || !NARRATIVE_ONLY.has(x);
 
 const BASE_LABELS: Record<string, [string, string]> = {
   Agent: ['Agent', 'Agente'], Place: ['Place', 'Lugar'], Object: ['Object', 'Objeto'], Ability: ['Ability', 'Habilidade'],

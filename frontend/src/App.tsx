@@ -92,13 +92,20 @@ export function App() {
   // context names and labels follow the interface language
   useEffect(() => { reloadContexts().catch(() => undefined); }, [uiLang, reloadContexts]);
 
+  const project = projects.find((p) => p.id === projectId);
+  const ctx = contexts.find((c) => c.id === (project ? ctxOf(project) : contextId));
+  const isBlueprint = !!project?.blueprint;
+  // the narrative engine stays off until the context says it is on (also while contexts are loading)
+  const narrativeOn = ctx?.narrative ?? false;
+
   // schema, outline and pending changesets
   useEffect(() => {
     if (!projectId) return;
     api.schema(projectId).then(setSchema).catch((e) => notify(e.message, true));
-    api.outline(projectId).then(setOutline).catch(() => setOutline([]));
+    if (narrativeOn) api.outline(projectId).then(setOutline).catch(() => setOutline([]));
+    else setOutline([]);
     api.changesets(projectId, 'pending').then((r) => setPending(r.length)).catch(() => setPending(0));
-  }, [projectId, version, notify]);
+  }, [projectId, version, notify, narrativeOn]);
 
   // graph view: focus on a node (it and what is linked to it) or the filtered view
   useEffect(() => {
@@ -147,10 +154,6 @@ export function App() {
 
   const nodesById = useMemo(() => new Map((view?.nodes ?? []).map((n) => [n.id, n])), [view]);
   const knownTags = useMemo(() => [...new Set((view?.nodes ?? []).flatMap((n) => n.tags ?? []))], [view]);
-  const project = projects.find((p) => p.id === projectId);
-  const ctx = contexts.find((c) => c.id === (project ? ctxOf(project) : contextId));
-  const isBlueprint = !!project?.blueprint;
-  const narrativeOn = ctx ? ctx.narrative : true;
   const tabs: Tab[] = ['all', ...((ctx?.tabs ?? ['actors', 'knowledge', 'story', 'analysis', 'templates']) as Tab[])];
   const ctxProjects = useMemo(() => projects.filter((p) => !p.blueprint && ctxOf(p) === (ctx?.id ?? contextId)), [projects, ctx, contextId]);
   useEffect(() => { if (!tabs.includes(tab)) setTab('all'); }, [ctx?.id]); // eslint-disable-line
@@ -509,7 +512,7 @@ export function App() {
           notify(t('Project cloned', 'Projeto clonado') + (notes.length ? ` · ${notes.join(' · ')}` : ''));
         }} />
       )}
-      {modal === 'schema' && projectId && <SchemaEditor schema={schema} run={run} onClose={() => setModal(null)} />}
+      {modal === 'schema' && projectId && <SchemaEditor schema={schema} run={run} narrativeOn={narrativeOn} onClose={() => setModal(null)} />}
       {modal === 'changesets' && projectId && <ChangesetsPanel projectId={projectId} onClose={() => setModal(null)} onChanged={() => setVersion((v) => v + 1)} />}
       {modal === 'facts' && projectId && <FactsPanel projectId={projectId} onClose={() => setModal(null)} onFocus={focus} />}
       {modal === 'structure' && project && (

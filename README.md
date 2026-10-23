@@ -112,6 +112,14 @@ node scripts/smoke_archive.mjs
 
 `smoke.mjs`, `smoke_contexts.mjs` e `smoke_archive.mjs` cobrem o núcleo e os contextos; `smoke_fase4.mjs`, `smoke_backlog.mjs` e `smoke_foco.mjs` cobrem o motor narrativo (perfis, templates, ganchos, manuscrito, elenco, validação, clone com tradução, foco).
 
+Regra da fronteira: o motor narrativo só existe no contexto narrativo (e nos contextos baseados nele). Fora dele, tipos Unit/Device, bases STRUCTURE/SETUP_PAYOFF e `story_time` são recusados na escrita e no import, e as tools e endpoints narrativos respondem com erro claro (400) em vez de resultado vazio; o `smoke.mjs` confere isso.
+
+O `smoke_migration.mjs` confere que a migração de subida não toca projetos de outros contextos. Ele reinicia o container do app, por isso só roda numa stack de teste (recusa as portas da instância real):
+
+```bash
+node scripts/smoke_migration.mjs http://127.0.0.1:38180 --neo4j http://127.0.0.1:37474 --container oh-narrative-test-app-1
+```
+
 ## Migrar da Harness Machine
 
 `scripts/migrate_from_harness_machine.mjs` lê o Neo4j da Harness Machine e gera um obliterate-archive com os projetos (padrão: Bronze Age e Harry Potter) e um projeto **"Biblioteca de estruturas"** com os 10 templates e seus beats; com `--import <url>` importa e confere a paridade (schema, nós, arestas, âncoras, outline, fatos, cobertura, ganchos, `state_at`, `writing_context`). Detalhes no [guia](docs/narrative/guia_historias.md#8-migração-do-harness-machine).

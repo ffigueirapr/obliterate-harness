@@ -12,31 +12,37 @@ async function api(method, path, body, expect) {
   return data;
 }
 
-const proj = await api('POST', '/api/contexts/corporate/projects', { name: 'Teste foco ' + new Date().toISOString().slice(0, 16), locale: 'pt' }, 201);
+const proj = await api('POST', '/api/projects', { context: 'narrative', name: 'Teste foco ' + new Date().toISOString().slice(0, 16), profile: 'livro', locale: 'pt' }, 201);
 const pid = proj.id;
-// cadeia Ana — Bruno — Carla — Davi; Eva isolada; Ana é membro da equipe Dados
-const w = await api('POST', `/api/projects/${pid}/changesets`, { title: 'pessoas', operations: [
-  { op: 'create_node', ref: '$dados', type: 'Equipe', name: 'Dados' },
-  ...['Ana', 'Bruno', 'Carla', 'Davi', 'Eva'].map((n) => ({ op: 'create_node', ref: '$' + n.toLowerCase(), type: 'Pessoa', name: n })),
-  { op: 'create_edge', relType: 'RELACIONA_COM', from: '$ana', to: '$bruno', description: 'par de projeto' },
-  { op: 'create_edge', relType: 'RELACIONA_COM', from: '$bruno', to: '$carla', description: 'mentor' },
-  { op: 'create_edge', relType: 'RELACIONA_COM', from: '$carla', to: '$davi', description: 'gestora' },
-  { op: 'create_edge', relType: 'MEMBRO_DE', from: '$ana', to: '$dados' },
+// cadeia Ana — Bruno — Carla — Davi; Eva isolada; Ana aparece no Cap 1, Bruno no Cap 2 (capítulos dentro da Obra)
+const w = await api('POST', `/api/projects/${pid}/changesets`, { title: 'cena', operations: [
+  { op: 'create_node', ref: '$obra', type: 'Obra', name: 'Obra' },
+  { op: 'create_node', ref: '$c1', type: 'Capítulo', name: 'Capítulo 1', parent: '$obra' },
+  { op: 'create_node', ref: '$c2', type: 'Capítulo', name: 'Capítulo 2', parent: '$obra' },
+  ...['Ana', 'Bruno', 'Carla', 'Davi', 'Eva'].map((n) => ({ op: 'create_node', ref: '$' + n.toLowerCase(), type: 'Personagem', name: n })),
+  { op: 'create_edge', relType: 'ALIADO_DE', from: '$ana', to: '$bruno' },
+  { op: 'create_edge', relType: 'INIMIGO_DE', from: '$bruno', to: '$carla' },
+  { op: 'create_edge', relType: 'FAMÍLIA_DE', from: '$carla', to: '$davi' },
+  { op: 'create_edge', relType: 'APARECE_EM', from: '$ana', to: '$c1' },
+  { op: 'create_edge', relType: 'APARECE_EM', from: '$bruno', to: '$c2' },
 ] });
 const id = w.ids;
 const names = (r) => r.nodes.map((n) => n.name).sort().join(',');
 
 const direct = await api('GET', `/api/projects/${pid}/graph/focus?nodeId=${id.$ana}`);
-check(names(direct) === 'Ana,Bruno,Dados', `diretos de Ana: ${names(direct)}`);
+check(names(direct) === 'Ana,Bruno,Capítulo 1', `diretos de Ana: ${names(direct)}`);
 check(direct.distance[id.$bruno] === 1 && direct.levels === 1, 'distância 1 nos diretos');
 
 const all = await api('GET', `/api/projects/${pid}/graph/focus?nodeId=${id.$ana}&all=true`);
-check(names(all) === 'Ana,Bruno,Carla,Dados,Davi', `todos ligados de Ana: ${names(all)}`);
+check(names(all) === 'Ana,Bruno,Capítulo 1,Capítulo 2,Carla,Davi', `todos ligados de Ana (sem seguir estrutura): ${names(all)}`);
 check(all.distance[id.$davi] === 3 && all.byLevel['3'] === 1, 'Davi a 3 saltos');
-check(!all.nodes.some((n) => n.name === 'Eva'), 'Eva (isolada) fica de fora');
+check(!all.nodes.some((n) => n.name === 'Eva' || n.name === 'Obra'), 'Eva (isolada) e Obra (só via estrutura) ficam de fora');
 
-const only = await api('GET', `/api/projects/${pid}/graph/focus?nodeId=${id.$ana}&all=true&relTypes=MEMBRO_DE`);
-check(names(only) === 'Ana,Dados', 'filtro por tipo de relação');
+const withStruct = await api('GET', `/api/projects/${pid}/graph/focus?nodeId=${id.$ana}&all=true&includeStructure=true`);
+check(withStruct.nodes.some((n) => n.name === 'Obra'), 'seguindo estrutura, a Obra entra');
+
+const only = await api('GET', `/api/projects/${pid}/graph/focus?nodeId=${id.$ana}&all=true&relTypes=ALIADO_DE`);
+check(names(only) === 'Ana,Bruno', 'filtro por tipo de relação');
 
 const lonely = await api('GET', `/api/projects/${pid}/graph/focus?nodeId=${id.$eva}&all=true`);
 check(lonely.nodes.length === 1 && lonely.levels === 0, 'nó isolado: só ele');
@@ -51,7 +57,7 @@ async function mcp(sid, method, params, n) {
 const init = await mcp(null, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'foco', version: '1' } }, 1);
 await fetch(BASE + '/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': init.sid }, body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) });
 const r1 = await mcp(init.sid, 'tools/call', { name: 'graph_focus', arguments: { projectId: pid, nodeId: id.$ana } }, 2);
-check(names(JSON.parse(r1.msg.result.content[0].text)) === 'Ana,Bruno,Dados', 'MCP graph_focus: diretos');
+check(names(JSON.parse(r1.msg.result.content[0].text)) === 'Ana,Bruno,Capítulo 1', 'MCP graph_focus: diretos');
 const r2 = await mcp(init.sid, 'tools/call', { name: 'graph_focus', arguments: { projectId: pid, nodeId: id.$ana, allConnected: true } }, 3);
 check(JSON.parse(r2.msg.result.content[0].text).distance[id.$davi] === 3, 'MCP graph_focus: todos ligados com distância');
 

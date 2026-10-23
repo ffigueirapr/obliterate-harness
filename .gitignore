@@ -5,13 +5,15 @@
 backups/
 poc_serasa/
 plano_implementacao.md
-docs/
+docs/*
+!docs/narrative/
 
 # Build
 backend/build/
 backend/.gradle/
 frontend/node_modules/
 frontend/dist/
+frontend/*.tsbuildinfo
 
 # IDE / SO
 .idea/

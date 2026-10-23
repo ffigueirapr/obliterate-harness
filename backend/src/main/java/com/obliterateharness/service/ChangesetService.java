@@ -8,15 +8,18 @@ import com.obliterateharness.domain.Operation;
 import com.obliterateharness.domain.Views;
 import com.obliterateharness.graph.ChangeExecutor;
 import com.obliterateharness.graph.Graph;
+import com.obliterateharness.harness.ContextService;
 import com.obliterateharness.store.AuditRepository;
 import com.obliterateharness.store.ChangesetRepository;
 import com.obliterateharness.store.SessionRepository;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -71,15 +74,56 @@ public class ChangesetService {
     private final AuditRepository audit;
     private final ProjectService projects;
     private final SessionRepository sessions;
+    /** looked up lazily: ContextService depends (through profiles) on this service */
+    private final ObjectProvider<ContextService> contexts;
 
     public ChangesetService(Graph graph, ChangeExecutor executor, ChangesetRepository changesets, AuditRepository audit, ProjectService projects,
-                            SessionRepository sessions) {
+                            SessionRepository sessions, ObjectProvider<ContextService> contexts) {
         this.graph = graph;
         this.executor = executor;
         this.changesets = changesets;
         this.audit = audit;
         this.projects = projects;
         this.sessions = sessions;
+        this.contexts = contexts;
+    }
+
+    private static final Set<String> NARRATIVE_BASES = Set.of("unit", "device");
+    private static final Set<String> NARRATIVE_REL_BASES = Set.of("structure", "setup_payoff");
+
+    /**
+     * The narrative engine's building blocks (base kinds Unit/Device, relation bases STRUCTURE/SETUP_PAYOFF, the story_time
+     * data type) only exist in the narrative context and contexts based on it; elsewhere the platform stays domain-neutral.
+     */
+    private void requireNarrativeWhereUsed(String projectId, List<Operation> ops) {
+        if (ops == null || ops.isEmpty()) return;
+        String used = null;
+        for (Operation op : ops) {
+            if (op == null || op.definition() == null || op.op() == null) continue;
+            Object base = op.definition().get("base");
+            String b = base == null ? "" : base.toString().toLowerCase(Locale.ROOT);
+            String fields = String.valueOf(op.definition().getOrDefault("attributes", op.definition().get("fields"))).toLowerCase(Locale.ROOT);
+            switch (op.op().toLowerCase(Locale.ROOT)) {
+                case "upsert_node_type" -> {
+                    if (NARRATIVE_BASES.contains(b)) used = t("base kind '", "tipo-base '") + base + "'";
+                    else if (fields.contains("story_time")) used = "dataType 'story_time'";
+                }
+                case "upsert_object_type" -> {
+                    if (fields.contains("story_time")) used = "dataType 'story_time'";
+                }
+                case "upsert_rel_type" -> {
+                    if (NARRATIVE_REL_BASES.contains(b)) used = t("relation base '", "base de relação '") + base + "'";
+                }
+                default -> { }
+            }
+            if (used != null) break;
+        }
+        if (used != null && !contexts.getObject().narrativeOn(projectId)) {
+            throw new DomainException(used + t(" belongs to the narrative engine: it only exists in the narrative context (or a context based on it). "
+                            + "Use the neutral base kinds here (Agent, Place, Object, Ability, Concept, Event, Media, Note).",
+                    " faz parte do motor narrativo: só existe no contexto narrativo (ou num contexto baseado nele). "
+                            + "Aqui use os tipos-base neutros (Agent, Place, Object, Ability, Concept, Event, Media, Note)."));
+        }
     }
 
     public Proposal propose(String projectId, Actor actor, String sessionId, String title, List<Operation> ops) {
@@ -88,6 +132,7 @@ public class ChangesetService {
 
     public Proposal propose(String projectId, Actor actor, String sessionId, String title, List<Operation> ops, Mode mode) {
         var project = projects.get(projectId);
+        requireNarrativeWhereUsed(projectId, ops);
         Map<String, String> known = sessionId == null ? Map.of() : sessions.refs(sessionId);
         var prepared = executor.prepare(ops, known);
         boolean review = actor == Actor.llm && project.requireReviewForLlm();

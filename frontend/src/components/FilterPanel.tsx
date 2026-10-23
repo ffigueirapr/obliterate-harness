@@ -6,6 +6,7 @@ import { BASES, baseLabel } from '../types';
 import { t } from '../i18n';
 
 interface Props {
+  narrativeOn?: boolean;
   projectId: string;
   schema: Schema;
   filter: ViewFilter;
@@ -16,7 +17,9 @@ interface Props {
 
 const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
-export function FilterPanel({ projectId, schema, filter, setFilter, knownTags, onFocus }: Props) {
+export function FilterPanel({ projectId, schema, filter, setFilter, knownTags, onFocus, narrativeOn = true }: Props) {
+  // Unit and Device only exist in the narrative context
+  const bases = BASES.filter((b) => narrativeOn || (b !== 'Unit' && b !== 'Device'));
   const [q, setQ] = useState('');
   const [results, setResults] = useState<GNode[]>([]);
   const [tagDraft, setTagDraft] = useState('');
@@ -62,7 +65,7 @@ export function FilterPanel({ projectId, schema, filter, setFilter, knownTags, o
 
       <div className="section">
         <h4>{t('Base kinds', 'Tipos-base')}</h4>
-        {BASES.map((b) => (
+        {bases.map((b) => (
           <label key={b} className="check">
             <input type="checkbox" checked={filter.bases.includes(b)} onChange={() => setFilter({ ...filter, bases: toggle(filter.bases, b) })} />
             <span className="dot" style={{ background: BASE_COLOR[b] }} />

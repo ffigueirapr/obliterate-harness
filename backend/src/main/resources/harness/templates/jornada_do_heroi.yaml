@@ -1,0 +1,43 @@
+id: jornada_do_heroi
+name: { en: Hero's journey, pt: Jornada do herói }
+description: { en: "Twelve stages of the hero's departure, initiation and return.", pt: "Doze etapas da partida, iniciação e retorno do herói." }
+scope: obra
+media: [livro, filme_serie, jogo, light_novel, manga, rpg_mesa]
+source: { en: "Joseph Campbell (monomyth), in Christopher Vogler's 12-stage version", pt: "Joseph Campbell (monomito), na versão de 12 etapas de Christopher Vogler" }
+beats:
+  - { key: { en: ordinary_world, pt: mundo_comum }, name: { en: Ordinary world, pt: Mundo comum }, position: 0.0,
+      function: { en: "The hero in their routine, before the adventure.", pt: "O herói em sua rotina, antes da aventura." },
+      criteria: { en: "Shows normal life and the hero's inner lack.", pt: "Mostra a vida normal e a falta interna do herói." } }
+  - { key: { en: call, pt: chamado }, name: { en: Call to adventure, pt: Chamado à aventura }, position: 0.1,
+      function: { en: "A challenge or opportunity appears.", pt: "Surge um desafio ou oportunidade." },
+      criteria: { en: "There is a clear invitation or threat that demands action.", pt: "Há um convite ou ameaça clara que pede ação." } }
+  - { key: { en: refusal, pt: recusa }, name: { en: Refusal of the call, pt: Recusa do chamado }, position: 0.15, required: false,
+      function: { en: "Fear or doubt makes the hero hesitate.", pt: "Medo ou dúvida fazem o herói hesitar." },
+      criteria: { en: "The hero resists and the cost of acting becomes evident.", pt: "O herói resiste e o custo de agir fica evidente." } }
+  - { key: { en: mentor, pt: mentor }, name: { en: Meeting the mentor, pt: Encontro com o mentor }, position: 0.2,
+      function: { en: "Someone offers advice, training or a gift.", pt: "Alguém oferece conselho, treino ou um presente." },
+      criteria: { en: "The hero receives something (knowledge, object, courage) they will use later.", pt: "O herói recebe algo (saber, objeto, coragem) que vai usar depois." } }
+  - { key: { en: threshold, pt: travessia }, name: { en: Crossing the threshold, pt: Travessia do limiar }, position: 0.25,
+      function: { en: "The hero enters the special world.", pt: "O herói entra no mundo especial." },
+      criteria: { en: "There is a clear passage into new territory.", pt: "Há uma passagem clara para um território novo." } }
+  - { key: { en: tests, pt: provas }, name: { en: "Tests, allies and enemies", pt: "Provas, aliados e inimigos" }, position: 0.35,
+      function: { en: "The hero learns the rules of the special world.", pt: "O herói aprende as regras do mundo especial." },
+      criteria: { en: "Allies and enemies appear; the hero is tested.", pt: "Aparecem aliados e inimigos; o herói é testado." } }
+  - { key: { en: approach, pt: aproximacao }, name: { en: Approach to the inmost cave, pt: Aproximação da caverna oculta }, position: 0.45,
+      function: { en: "Preparation for the great challenge.", pt: "Preparação para o grande desafio." },
+      criteria: { en: "Plans, rising tension, the central danger draws near.", pt: "Planos, tensão crescente, o perigo central se aproxima." } }
+  - { key: { en: ordeal, pt: provacao }, name: { en: Ordeal, pt: Provação }, position: 0.5,
+      function: { en: "Central crisis: the hero faces death (literal or symbolic).", pt: "Crise central: o herói enfrenta a morte (literal ou simbólica)." },
+      criteria: { en: "The hero almost loses everything and comes out transformed.", pt: "O herói quase perde tudo e sai transformado." } }
+  - { key: { en: reward, pt: recompensa }, name: { en: Reward, pt: Recompensa }, position: 0.6,
+      function: { en: "The hero wins what they sought.", pt: "O herói conquista o que buscava." },
+      criteria: { en: "There is a concrete gain (object, knowledge, reconciliation).", pt: "Há um ganho concreto (objeto, saber, reconciliação)." } }
+  - { key: { en: road_back, pt: caminho_de_volta }, name: { en: The road back, pt: Caminho de volta }, position: 0.75,
+      function: { en: "Consequences of the ordeal chase the hero.", pt: "Consequências da provação perseguem o herói." },
+      criteria: { en: "The hero decides to return and the pressure rises.", pt: "O herói decide voltar e a pressão aumenta." } }
+  - { key: { en: resurrection, pt: ressurreicao }, name: { en: Resurrection, pt: Ressurreição }, position: 0.9,
+      function: { en: "Final test where the hero proves their transformation.", pt: "Teste final em que o herói prova a transformação." },
+      criteria: { en: "The climax demands from the hero what they learned.", pt: "O clímax exige do herói o que ele aprendeu." } }
+  - { key: { en: return, pt: retorno }, name: { en: Return with the elixir, pt: Retorno com o elixir }, position: 1.0,
+      function: { en: "The hero returns to the ordinary world bringing something that transforms it.", pt: "O herói volta ao mundo comum trazendo algo que o transforma." },
+      criteria: { en: "The ordinary world is affected by what the hero brought.", pt: "O mundo comum é afetado pelo que o herói trouxe." } }

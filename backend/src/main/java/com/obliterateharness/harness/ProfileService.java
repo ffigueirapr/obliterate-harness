@@ -29,7 +29,7 @@ import java.util.function.Predicate;
 import static com.obliterateharness.i18n.I18n.t;
 
 /**
- * Applies schema presets (harness/profiles) to projects, in the project's language: generates schema operations (types, relations,
+ * Applies production profiles to projects, in the project's language: generates schema operations (types, relations,
  * objects) and records them in a changeset. Re-applying is safe: existing types only get what is missing (attributes,
  * allowed pairs, system keys). Types are matched by system key first, then by name.
  */
@@ -64,6 +64,13 @@ public class ProfileService {
                     t("The schema already had everything in the profile.", "O schema já continha tudo do perfil."), null, null);
         }
         return changesets.propose(projectId, actor, null, t("Profile ", "Perfil ") + library.requireProfile(profileId, lang).name(), ops);
+    }
+
+    /** Makes sure the given core kits exist (by system key), e.g. before applying a template. */
+    public void ensureCore(String projectId, Set<String> systemKeys) {
+        Lang lang = projects.locale(projectId);
+        var ops = schemaOps(projectId, library.chain("nucleo", lang), k -> k != null && systemKeys.contains(k));
+        if (!ops.isEmpty()) changesets.propose(projectId, Actor.system, null, t("Harness core types", "Tipos do núcleo do harness"), ops);
     }
 
     /**

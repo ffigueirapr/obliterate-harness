@@ -5,7 +5,6 @@ import com.obliterateharness.domain.Actor;
 import com.obliterateharness.domain.DomainException;
 import com.obliterateharness.domain.Ids;
 import com.obliterateharness.domain.NotFoundException;
-import com.obliterateharness.domain.Space;
 import com.obliterateharness.domain.Views;
 import com.obliterateharness.i18n.I18n;
 import com.obliterateharness.i18n.Lang;
@@ -36,7 +35,7 @@ import java.util.Set;
 import static com.obliterateharness.i18n.I18n.t;
 
 /**
- * Contexts: the domains the platform runs (a company's brain, a research base, anything the user or an LLM defines).
+ * Contexts: the domains the platform runs (stories and worlds, a company's brain, anything the user defines).
  * <p>
  * Built-in contexts come from YAML (harness/contexts) and point to profiles (harness/profiles) for their schema.
  * Contexts created by the user or by an LLM keep their definition in a <b>blueprint project</b>: a hidden project whose
@@ -47,24 +46,28 @@ import static com.obliterateharness.i18n.I18n.t;
 @Service
 public class ContextService {
     private static final Logger log = LoggerFactory.getLogger(ContextService.class);
-    private static final List<String> ALL_TABS = List.of("actors", "knowledge", "analysis");
+    private static final List<String> ALL_TABS = List.of("actors", "knowledge", "story", "analysis", "templates");
+    private static final Set<String> SPACES = Set.copyOf(ALL_TABS);
+    /** Tabs of a context without the narrative engine (story and templates only make sense with it). */
+    private static final List<String> NEUTRAL_TABS = List.of("actors", "knowledge", "analysis");
 
     public record Preset(String id, String name, String description) {}
 
     /**
      * @param kind              builtin (read-only, from YAML) or custom (created by a person or an LLM)
      * @param blueprintProjectId custom contexts: the project that holds the definition; edit its schema to change the context
+     * @param narrative         whether the narrative tools (structure, hooks, manuscript) make sense in this context
      * @param tabs              graph spaces shown as tabs, in order
      * @param spaceLabels       how this context names each space
      */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     public record ContextView(String id, String name, String description, String icon, String color, String kind, String locale,
                               List<Preset> presets, String defaultPreset, String blueprintProjectId, String baseContext, String instructions,
-                              Map<String, String> spaceLabels, List<String> tabs, int projectCount) {}
+                              Map<String, String> spaceLabels, List<String> tabs, boolean narrative, int projectCount) {}
 
     /** Built-in context as written in YAML (after localization). */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    record BuiltinDef(String id, String name, String description, String icon, String color, List<String> presets,
+    record BuiltinDef(String id, String name, String description, String icon, String color, Boolean narrative, List<String> presets,
                       String defaultPreset, List<String> tabs, Map<String, String> spaceLabels, String instructions) {}
 
     private final Map<String, Object> builtinTrees = new LinkedHashMap<>();
@@ -110,7 +113,7 @@ public class ContextService {
 
     public List<ContextView> list(Lang lang) {
         Map<String, Integer> counts = new HashMap<>();
-        for (var p : projects.list()) if (p.context() != null) counts.merge(p.context(), 1, Integer::sum);
+        for (var p : projects.list()) counts.merge(p.context() == null ? ProjectService.NARRATIVE_CONTEXT : p.context(), 1, Integer::sum);
         List<ContextView> out = new ArrayList<>();
         for (String id : builtinTrees.keySet()) out.add(view(builtin(id, lang), lang, counts.getOrDefault(id, 0)));
         for (var row : repo.list()) out.add(view(row, lang, counts.getOrDefault(row.id(), 0)));
@@ -124,11 +127,23 @@ public class ContextService {
         return view(row(id), lang, count);
     }
 
-    /** The context a project belongs to. */
+    /**
+     * Whether the narrative engine (units, narrative devices, story time, manuscript, templates) is on for the project:
+     * the narrative context, a custom context based on it, or a project from before contexts.
+     */
+    public boolean narrativeOn(String projectId) {
+        String c = projects.get(projectId).context();
+        if (c == null) return true;
+        BuiltinDef b = builtin(c, Lang.en);
+        if (b != null) return Boolean.TRUE.equals(b.narrative());
+        return repo.get(c).map(r -> isNarrative(r.baseContext(), 0)).orElse(false);
+    }
+
+    /** The context a project belongs to (narrative for projects from before contexts). */
     public Optional<ContextView> ofProject(Views.Project p, Lang lang) {
-        if (p.context() == null) return Optional.empty();
+        String id = p.context() == null ? ProjectService.NARRATIVE_CONTEXT : p.context();
         try {
-            return Optional.of(get(p.context(), lang));
+            return Optional.of(get(id, lang));
         } catch (NotFoundException e) {
             return Optional.empty();
         }
@@ -147,33 +162,20 @@ public class ContextService {
             }
         }
         return new ContextView(b.id(), b.name(), b.description(), b.icon(), b.color(), "builtin", null, presets, b.defaultPreset(), null, null,
-                b.instructions(), normalizeLabels(b.spaceLabels()), normalizeTabs(b.tabs()), count);
+                b.instructions(), b.spaceLabels(), b.tabs() == null ? ALL_TABS : b.tabs(), Boolean.TRUE.equals(b.narrative()), count);
     }
 
     private ContextView view(ContextRepository.Row r, Lang lang, int count) {
         return new ContextView(r.id(), r.name(), r.description(), r.icon(), r.color(), "custom", r.locale(), List.of(), null, r.blueprintProjectId(),
-                r.baseContext(), r.instructions(), normalizeLabels(r.spaceLabels()), normalizeTabs(r.tabs()), count);
+                r.baseContext(), r.instructions(), r.spaceLabels(), r.tabs() != null ? r.tabs() : isNarrative(r.baseContext(), 0) ? ALL_TABS : NEUTRAL_TABS,
+                isNarrative(r.baseContext(), 0), count);
     }
 
-    /** Tabs in current space names (contexts saved before the rename used world/characters/...), without repeats. */
-    private static List<String> normalizeTabs(List<String> tabs) {
-        if (tabs == null || tabs.isEmpty()) return ALL_TABS;
-        var out = new java.util.LinkedHashSet<String>();
-        for (String t : tabs) {
-            Space s = Space.of(t);
-            if (s != null) out.add(s.name());
-        }
-        return out.isEmpty() ? ALL_TABS : List.copyOf(out);
-    }
-
-    private static Map<String, String> normalizeLabels(Map<String, String> labels) {
-        if (labels == null) return null;
-        Map<String, String> out = new LinkedHashMap<>();
-        labels.forEach((k, v) -> {
-            Space s = Space.of(k);
-            if (s != null) out.putIfAbsent(s.name(), v);
-        });
-        return out;
+    private boolean isNarrative(String base, int depth) {
+        if (base == null || depth > 10) return false;
+        BuiltinDef b = builtin(base, Lang.en);
+        if (b != null) return Boolean.TRUE.equals(b.narrative());
+        return repo.get(base).map(r -> isNarrative(r.baseContext(), depth + 1)).orElse(false);
     }
 
     // ------------------------------------------------------------------ creating and editing contexts
@@ -182,7 +184,7 @@ public class ContextService {
      * Creates a context and its blueprint project.
      *
      * @param baseContext optional: a built-in or custom context to start from (its types, relations, rules and directives are copied)
-     * @param basePreset  optional: for a built-in base with several presets, which one
+     * @param basePreset  optional: for a built-in base with several presets (e.g. narrative: livro, manga...), which one
      */
     public ContextView create(String name, String description, String icon, String color, String locale, String baseContext, String basePreset,
                               String instructions, Actor actor) {
@@ -226,7 +228,14 @@ public class ContextService {
         projects.setContext(blueprint, id, true);
         repo.insert(new ContextRepository.Row(id, name.trim(), description, blank(icon) ? "🧩" : icon, color, lang.name(), blueprint, baseId,
                 instructions, labels, tabs));
+        dropStructureIfNotNarrative(blueprint);
         return get(id, lang);
+    }
+
+    private static String spaceName(String s, String unknownEn, String unknownPt) {
+        var space = com.obliterateharness.domain.Space.of(s);
+        if (space == null || !SPACES.contains(space.name())) throw new DomainException(t(unknownEn, unknownPt) + s + "'. " + ALL_TABS);
+        return space.name();
     }
 
     public ContextView update(String id, String name, String description, String icon, String color, String instructions,
@@ -238,12 +247,13 @@ public class ContextService {
         var r = row(id);
         if (tabs != null) {
             if (tabs.isEmpty()) throw new DomainException(t("Keep at least one tab", "Mantenha pelo menos uma aba"));
-            for (String s : tabs) if (Space.of(s) == null) throw new DomainException(t("Unknown tab '", "Aba desconhecida '") + s + "'. " + ALL_TABS);
-            tabs = normalizeTabs(tabs);
+            // old space names (world, characters) are accepted as aliases
+            tabs = tabs.stream().map(s -> spaceName(s, "Unknown tab '", "Aba desconhecida '")).distinct().toList();
         }
         if (spaceLabels != null) {
-            for (String s : spaceLabels.keySet()) if (Space.of(s) == null) throw new DomainException(t("Unknown space '", "Espaço desconhecido '") + s + "'. " + ALL_TABS);
-            spaceLabels = normalizeLabels(spaceLabels);
+            Map<String, String> labels = new java.util.LinkedHashMap<>();
+            spaceLabels.forEach((k, v) -> labels.put(spaceName(k, "Unknown space '", "Espaço desconhecido '"), v));
+            spaceLabels = labels;
         }
         repo.update(id, blankToNull(name), description, blankToNull(icon), blankToNull(color), instructions, spaceLabels, tabs);
         if (name != null && !name.isBlank()) projects.update(r.blueprintProjectId(), name.trim() + t(" · definition", " · definição"), null, null, null);
@@ -285,13 +295,24 @@ public class ContextService {
             var p = projects.create(name, description, profile, requireReviewForLlm, lang.name());
             if (profile != null && library.profile(profile, lang).isPresent()) I18n.with(lang, () -> profiles.apply(p.id(), profile, actor));
             projects.setContext(p.id(), contextId, false);
+            dropStructureIfNotNarrative(p.id());
             return projects.get(p.id());
         }
         var r = row(contextId);
         var copy = cloner.cloneProject(r.blueprintProjectId(), name, CloneService.Options.schemaOnly(), null);
         projects.update(copy.projectId(), null, description == null ? "" : description, null, requireReviewForLlm);
         projects.setContext(copy.projectId(), contextId, false);
+        dropStructureIfNotNarrative(copy.projectId());
         return projects.get(copy.projectId());
+    }
+
+    /**
+     * Every project is born with the system structure relation CONTAINS (chapter inside work); outside the narrative
+     * engine it has no use, so it is removed while no structure edge uses it.
+     */
+    public void dropStructureIfNotNarrative(String projectId) {
+        if (narrativeOn(projectId)) return;
+        projects.dropUnusedStructure(projectId);
     }
 
     /** Context instructions for the LLM briefing of a project. */

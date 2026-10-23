@@ -2,6 +2,7 @@ package com.obliterateharness.harness;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.obliterateharness.domain.Actor;
+import com.obliterateharness.domain.AttrDef;
 import com.obliterateharness.domain.BaseKind;
 import com.obliterateharness.domain.DomainException;
 import com.obliterateharness.domain.Ids;
@@ -428,6 +429,7 @@ public class ArchiveService {
         List<Plan> all = new ArrayList<>();
         newContexts.forEach(n -> all.add(n.blueprint()));
         all.addAll(plans);
+        for (Plan p : all) requireNarrativeWhereUsed(p, newContexts);
         Map<String, String> projectIds = new HashMap<>();
         all.forEach(p -> projectIds.put(p.entry().id(), p.newId()));
         Map<String, Map<String, Integer>> counts = new HashMap<>();
@@ -472,6 +474,49 @@ public class ArchiveService {
             if (!p.blueprint()) out.add(new ImportedProject(p.entry().id(), p.newId(), p.name(), p.context(), counts.get(p.newId())));
         }
         return new ImportResult(out, ctxOut, notes);
+    }
+
+    /**
+     * The narrative engine's building blocks (base kinds Unit/Device, relation bases STRUCTURE/SETUP_PAYOFF, the story_time
+     * data type) only exist in the narrative context and contexts based on it: a project that uses them cannot land in
+     * another context. Checked before anything is written.
+     */
+    private void requireNarrativeWhereUsed(Plan plan, List<NewContext> newContexts) {
+        String used = narrativePiece(plan.entry().schema());
+        if (used == null || plan.context() == null) return; // no context = narrative (projects from before contexts)
+        boolean narrative = newContexts.stream().filter(n -> n.newId().equals(plan.context())).findFirst()
+                .map(n -> contexts.narrativeContext(n.entry().baseContext()))
+                .orElseGet(() -> contexts.narrativeContext(plan.context()));
+        if (narrative) return;
+        throw new DomainException(t("Project '", "Projeto '") + plan.entry().name() + t("' uses ", "' usa ") + used
+                + t(", which belongs to the narrative engine, but its context is not narrative. The narrative engine only exists in the narrative "
+                        + "context (or a context based on it): import the project into one of those.",
+                ", que faz parte do motor narrativo, mas o contexto dele não é narrativo. O motor narrativo só existe no contexto narrativo "
+                        + "(ou num contexto baseado nele): importe o projeto num deles."));
+    }
+
+    /** The first narrative-only piece of a schema (e.g. "base kind 'Unit' (Chapter)"), or null when there is none. */
+    private static String narrativePiece(Schema s) {
+        if (s == null) return null;
+        for (NodeTypeDef nt : s.nodeTypes() == null ? List.<NodeTypeDef>of() : s.nodeTypes()) {
+            if ("Unit".equalsIgnoreCase(nt.base()) || "Device".equalsIgnoreCase(nt.base())) {
+                return t("base kind '", "tipo-base '") + nt.base() + "' (" + nt.name() + ")";
+            }
+            if (usesStoryTime(nt.attributes())) return "dataType 'story_time' (" + nt.name() + ")";
+        }
+        for (RelTypeDef rt : s.relTypes() == null ? List.<RelTypeDef>of() : s.relTypes()) {
+            if ("STRUCTURE".equalsIgnoreCase(rt.base()) || "SETUP_PAYOFF".equalsIgnoreCase(rt.base())) {
+                return t("relation base '", "base de relação '") + rt.base() + "' (" + rt.name() + ")";
+            }
+        }
+        for (ObjectTypeDef ot : s.objectTypes() == null ? List.<ObjectTypeDef>of() : s.objectTypes()) {
+            if (usesStoryTime(ot.fields())) return "dataType 'story_time' (" + ot.name() + ")";
+        }
+        return null;
+    }
+
+    private static boolean usesStoryTime(List<AttrDef> attrs) {
+        return attrs != null && attrs.stream().anyMatch(a -> "story_time".equalsIgnoreCase(a.dataType()) || "story_time".equalsIgnoreCase(a.itemType()));
     }
 
     /** Checks a project entry before writing anything, so errors name what is wrong. */

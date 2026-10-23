@@ -5,6 +5,7 @@ import com.obliterateharness.domain.Views.Detail;
 import com.obliterateharness.graph.Graph;
 import com.obliterateharness.graph.GraphReader;
 import com.obliterateharness.graph.GraphReader.NodeFilter;
+import com.obliterateharness.harness.NarrativeGuard;
 import com.obliterateharness.service.ProjectService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,11 +35,13 @@ public class GraphController {
     private final Graph graph;
     private final GraphReader reader;
     private final ProjectService projects;
+    private final NarrativeGuard guard;
 
-    public GraphController(Graph graph, GraphReader reader, ProjectService projects) {
+    public GraphController(Graph graph, GraphReader reader, ProjectService projects, NarrativeGuard guard) {
         this.graph = graph;
         this.reader = reader;
         this.projects = projects;
+        this.guard = guard;
     }
 
     @GetMapping("/nodes")
@@ -118,12 +121,13 @@ public class GraphController {
 
     @GetMapping("/state-at")
     public Views.StateAt stateAt(@PathVariable String pid, @RequestParam String entity, @RequestParam String unit) {
+        guard.require(pid, "state_at");
         return graph.read(tx -> reader.stateAt(tx, pid, entity, unit));
     }
 
     @GetMapping("/outline")
     public List<Views.OutlineItem> outline(@PathVariable String pid, @RequestParam(defaultValue = "10") int depth) {
-        projects.get(pid);
+        guard.require(pid, "story_outline");
         return graph.read(tx -> reader.outline(tx, pid, depth));
     }
 

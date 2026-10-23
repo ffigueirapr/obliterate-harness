@@ -16,6 +16,7 @@ import com.obliterateharness.harness.ExportService;
 import com.obliterateharness.harness.GuidanceService;
 import com.obliterateharness.harness.HarnessLibrary;
 import com.obliterateharness.harness.LocalizationService;
+import com.obliterateharness.harness.NarrativeGuard;
 import com.obliterateharness.harness.NarrativeService;
 import com.obliterateharness.harness.ProfileService;
 import com.obliterateharness.harness.TemplateService;
@@ -72,12 +73,13 @@ public class HarnessTools {
     private final LocalizationService localization;
     private final ContextService contexts;
     private final ArchiveService archives;
+    private final NarrativeGuard narrativeGuard;
     private final String publicUrl;
 
     public HarnessTools(ProjectService projects, SessionService sessions, ChangesetService changesets, Graph graph, GraphReader reader,
                         SchemaStore schema, HarnessLibrary library, ProfileService profiles, TemplateService templates, NarrativeService narrative,
                         GuidanceService guidance, UnitService units, ExportService export, CloneService cloner, LocalizationService localization,
-                        ContextService contexts, ArchiveService archives,
+                        ContextService contexts, ArchiveService archives, NarrativeGuard narrativeGuard,
                         @Value("${harness.public-url:http://localhost:8080}") String publicUrl) {
         this.projects = projects;
         this.sessions = sessions;
@@ -96,12 +98,21 @@ public class HarnessTools {
         this.localization = localization;
         this.contexts = contexts;
         this.archives = archives;
+        this.narrativeGuard = narrativeGuard;
         this.publicUrl = publicUrl;
     }
 
     /** Runs a project tool in the project's language. */
     private <T> T in(String projectId, Supplier<T> work) {
         return I18n.with(projects.locale(projectId), work);
+    }
+
+    /** Like {@link #in}, for the narrative engine's tools: outside the narrative context they fail with a clear error. */
+    private <T> T narrativeIn(String projectId, String tool, Supplier<T> work) {
+        return in(projectId, () -> {
+            narrativeGuard.require(projectId, tool);
+            return work.get();
+        });
     }
 
     // ------------------------------------------------------------------ projects and sessions
@@ -381,14 +392,14 @@ public class HarnessTools {
             @McpToolParam(description = "Project id") String projectId,
             @McpToolParam(description = "Entity id (character, item...)") String entityId,
             @McpToolParam(description = "Narrative unit id (chapter, scene...)") String unitId) {
-        return in(projectId, () -> graph.read(tx -> reader.stateAt(tx, projectId, entityId, unitId)));
+        return narrativeIn(projectId, "state_at", () -> graph.read(tx -> reader.stateAt(tx, projectId, entityId, unitId)));
     }
 
     @McpTool(name = "story_outline", description = "Narrative structure as a tree (work > arc > chapter > scene ...), with summaries and word counts.")
     public List<Views.OutlineItem> storyOutline(
             @McpToolParam(description = "Project id") String projectId,
             @McpToolParam(description = "Depth (default 3)", required = false) Integer depth) {
-        return in(projectId, () -> {
+        return narrativeIn(projectId, "story_outline", () -> {
             projects.get(projectId);
             return graph.read(tx -> reader.outline(tx, projectId, depth == null ? 3 : depth));
         });
@@ -467,7 +478,7 @@ public class HarnessTools {
             @McpToolParam(description = "Attribute to write (default: the type's manuscript attribute)", required = false) String attribute,
             @McpToolParam(description = "Note about this draft (e.g. 'first pass', 'after review')", required = false) String note,
             @McpToolParam(description = "Current session id", required = false) String sessionId) {
-        return in(projectId, () -> units.setText(projectId, unitId, text, mode, attribute, null, note, Actor.llm, sessionId));
+        return narrativeIn(projectId, "unit_text_set", () -> units.setText(projectId, unitId, text, mode, attribute, null, note, Actor.llm, sessionId));
     }
 
     @McpTool(name = "unit_text_append", description = "Appends a chunk to a unit's manuscript (write long chapters in parts). "
@@ -478,7 +489,7 @@ public class HarnessTools {
             @McpToolParam(description = "Chunk of text to append") String text,
             @McpToolParam(description = "Separator before the chunk (default: blank line)", required = false) String separator,
             @McpToolParam(description = "Current session id", required = false) String sessionId) {
-        return in(projectId, () -> units.setText(projectId, unitId, text, "append", null, separator, null, Actor.llm, sessionId));
+        return narrativeIn(projectId, "unit_text_append", () -> units.setText(projectId, unitId, text, "append", null, separator, null, Actor.llm, sessionId));
     }
 
     @McpTool(name = "unit_text_get", description = "Reads a unit's manuscript (current, or a saved version).")
@@ -486,14 +497,14 @@ public class HarnessTools {
             @McpToolParam(description = "Project id") String projectId,
             @McpToolParam(description = "Unit id") String unitId,
             @McpToolParam(description = "Saved version number (default: current text)", required = false) Integer version) {
-        return in(projectId, () -> units.getText(projectId, unitId, version, null));
+        return narrativeIn(projectId, "unit_text_get", () -> units.getText(projectId, unitId, version, null));
     }
 
     @McpTool(name = "unit_text_history", description = "Saved drafts of a unit's manuscript (version, words, who, when, note), without the text.")
     public List<TextVersionRepository.Version> unitTextHistory(
             @McpToolParam(description = "Project id") String projectId,
             @McpToolParam(description = "Unit id") String unitId) {
-        return in(projectId, () -> units.history(projectId, unitId));
+        return narrativeIn(projectId, "unit_text_history", () -> units.history(projectId, unitId));
     }
 
     @McpTool(name = "unit_text_diff", description = "Line diff between two drafts of a unit's manuscript (to omitted = current text).")
@@ -502,7 +513,7 @@ public class HarnessTools {
             @McpToolParam(description = "Unit id") String unitId,
             @McpToolParam(description = "From version") Integer from,
             @McpToolParam(description = "To version (default: current text)", required = false) Integer to) {
-        return in(projectId, () -> units.diff(projectId, unitId, from, to));
+        return narrativeIn(projectId, "unit_text_diff", () -> units.diff(projectId, unitId, from, to));
     }
 
     @McpTool(name = "unit_cast_set", description = "Sets who appears in a unit (its cast) in one call, instead of one appears-in edge at a time. "
@@ -513,7 +524,7 @@ public class HarnessTools {
             @McpToolParam(description = "Ids (or session $aliases) of the nodes in the unit") List<String> nodeIds,
             @McpToolParam(description = "replace (default) or add", required = false) String mode,
             @McpToolParam(description = "Current session id", required = false) String sessionId) {
-        return in(projectId, () -> units.setCast(projectId, unitId, nodeIds, mode, Actor.llm, sessionId));
+        return narrativeIn(projectId, "unit_cast_set", () -> units.setCast(projectId, unitId, nodeIds, mode, Actor.llm, sessionId));
     }
 
     @McpTool(name = "unit_validate", description = "Checks a unit's text against the canon. Returns deterministic findings (characters mentioned but not "
@@ -523,7 +534,7 @@ public class HarnessTools {
             @McpToolParam(description = "Project id") String projectId,
             @McpToolParam(description = "Unit id") String unitId,
             @McpToolParam(description = "Text to check instead of the stored manuscript (e.g. a draft before saving)", required = false) String text) {
-        return in(projectId, () -> units.validate(projectId, unitId, text));
+        return narrativeIn(projectId, "unit_validate", () -> units.validate(projectId, unitId, text));
     }
 
     @McpTool(name = "manuscript_export", description = "Compiles the manuscript in narrative order (whole work, or one unit and its parts). "
@@ -533,7 +544,7 @@ public class HarnessTools {
             @McpToolParam(description = "md (default), txt, html, docx or epub", required = false) String format,
             @McpToolParam(description = "Only this unit and its descendants (e.g. one volume)", required = false) String rootUnitId,
             @McpToolParam(description = "Only these unit types become sections (e.g. ['Chapter'])", required = false) List<String> unitTypes) {
-        return in(projectId, () -> {
+        return narrativeIn(projectId, "manuscript_export", () -> {
             String f = format == null ? "md" : format.toLowerCase();
             var compiled = export.compile(projectId, rootUnitId, unitTypes);
             var file = export.export(projectId, f, rootUnitId, unitTypes);
@@ -580,7 +591,7 @@ public class HarnessTools {
             @McpToolParam(description = "Unit type measured (e.g. Chapter); default from the profile", required = false) String unitType,
             @McpToolParam(description = "Planned total of those units (improves position estimates)", required = false) Integer plannedUnits,
             @McpToolParam(description = "For unit-scope templates: id of the unit whose parts are measured", required = false) String scopeUnitId) {
-        return in(projectId, () -> templates.apply(projectId, templateId, unitType, plannedUnits, scopeUnitId, Actor.llm));
+        return narrativeIn(projectId, "template_apply", () -> templates.apply(projectId, templateId, unitType, plannedUnits, scopeUnitId, Actor.llm));
     }
 
     @McpTool(name = "template_derive", description = "Turns an existing work into a reusable template: one beat per unit of the chosen type (e.g. each "
@@ -592,7 +603,7 @@ public class HarnessTools {
             @McpToolParam(description = "Template name (default: 'Structure of <project>')", required = false) String name,
             @McpToolParam(description = "Description", required = false) String description,
             @McpToolParam(description = "Include the unit's parts (e.g. scenes) in each beat's criteria", required = false) Boolean includeChildren) {
-        return in(fromProjectId, () -> templates.derive(fromProjectId, unitType, name, description, Boolean.TRUE.equals(includeChildren)));
+        return narrativeIn(fromProjectId, "template_derive", () -> templates.derive(fromProjectId, unitType, name, description, Boolean.TRUE.equals(includeChildren)));
     }
 
     @McpTool(name = "template_upsert", description = "Creates or replaces a custom template. definition: {id?, name, description?, scope: obra|unidade, "
@@ -612,7 +623,7 @@ public class HarnessTools {
     public List<TemplateService.Coverage> milestoneCoverage(
             @McpToolParam(description = "Project id") String projectId,
             @McpToolParam(description = "Template node id; empty = all", required = false) String templateNodeId) {
-        return in(projectId, () -> templateNodeId == null || templateNodeId.isBlank() ? templates.coverageAll(projectId)
+        return narrativeIn(projectId, "milestone_coverage", () -> templateNodeId == null || templateNodeId.isBlank() ? templates.coverageAll(projectId)
                 : List.of(templates.coverage(projectId, templateNodeId)));
     }
 
@@ -622,7 +633,7 @@ public class HarnessTools {
     public List<NarrativeService.Thread> openThreads(
             @McpToolParam(description = "Project id") String projectId,
             @McpToolParam(description = "Include paid/abandoned", required = false) Boolean includeClosed) {
-        return in(projectId, () -> narrative.openThreads(projectId, Boolean.TRUE.equals(includeClosed)));
+        return narrativeIn(projectId, "open_threads", () -> narrative.openThreads(projectId, Boolean.TRUE.equals(includeClosed)));
     }
 
     @McpTool(name = "writing_context", description = "Context package for WRITING (or revising) a narrative unit, within a token budget: the unit, where "
@@ -636,7 +647,7 @@ public class HarnessTools {
             @McpToolParam(description = "Approximate budget in tokens (default 6000)", required = false) Integer maxTokens,
             @McpToolParam(description = "How many closing paragraphs of the previous unit to include (default 3, 0 = none)", required = false) Integer tailParagraphs,
             @McpToolParam(description = "Emphasis, e.g. ['secrets'] to put the do-not-reveal list first", required = false) List<String> focus) {
-        return in(projectId, () -> narrative.writingContext(projectId, unitId, maxTokens, tailParagraphs, focus));
+        return narrativeIn(projectId, "writing_context", () -> narrative.writingContext(projectId, unitId, maxTokens, tailParagraphs, focus));
     }
 
     @McpTool(name = "directives_list", description = "Active directives of the project (from the profile and from the project) with their triggers. "

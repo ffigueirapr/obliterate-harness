@@ -1,8 +1,8 @@
 // Teste de fumaça ponta a ponta contra a API rodando (node scripts/smoke.mjs [baseUrl] [--manter]).
 // Cria um contexto em branco e um projeto nele, monta schema, nós, arestas e fatos, confere as consultas principais,
 // as travas (pares permitidos, tipos, versões, lote atômico, dryRun, best_effort), diretivas, clone com tradução,
-// e exercita o MCP (initialize, tools/list, tools/call, resources, prompts). Também confere que a camada narrativa
-// antiga não existe mais. Apaga tudo no fim (a menos que --manter).
+// e exercita o MCP (initialize, tools/list, tools/call, resources, prompts). Também confere que o motor narrativo
+// só existe no contexto narrativo (fora dele: escrita recusada, endpoints e tools com erro claro, import recusado). Apaga tudo no fim (a menos que --manter).
 const BASE = process.argv.find((a) => a.startsWith('http')) ?? 'http://127.0.0.1:8180';
 const KEEP = process.argv.includes('--manter');
 let failures = 0;
@@ -146,11 +146,19 @@ const dirs = (await api('GET', `/api/projects/${pid}/directives`)).filter((x) =>
 check(dirs.length === 1 && dirs[0].text === 'Cite sempre o documento de origem.' && dirs[0].enabled === false, 'diretiva editada pelo id e desligada');
 
 console.log('# Motor narrativo só no contexto narrativo');
-// the endpoints exist (they serve narrative projects); on this project they simply have nothing to show
-for (const [path, label] of [[`/api/projects/${pid}/outline`, 'outline'], ['/api/harness/templates', 'templates'], [`/api/projects/${pid}/threads`, 'threads']]) {
-  const r = await fetch(BASE + path);
-  check(r.status === 200, `endpoint ${label} responde (200)`);
+// the template library is global; the per-project narrative endpoints answer with a clear error outside the narrative context
+check((await fetch(BASE + '/api/harness/templates')).status === 200, 'biblioteca de templates responde (200)');
+for (const [path, label] of [[`/api/projects/${pid}/outline`, 'outline'], [`/api/projects/${pid}/threads`, 'threads'], [`/api/projects/${pid}/coverage`, 'coverage'],
+  [`/api/projects/${pid}/writing-context/${id.$billing}`, 'writing-context'], [`/api/projects/${pid}/units/${id.$billing}/text`, 'unit text'],
+  [`/api/projects/${pid}/state-at?entity=${id.$billing}&unit=${id.$billing}`, 'state-at'], [`/api/projects/${pid}/export?format=md`, 'manuscrito']]) {
+  const res = await api('GET', path, undefined, 400);
+  check(res.detail.includes('motor narrativo') && res.detail.includes(ctx.id), `endpoint ${label} recusa com erro claro fora do narrativo (400)`);
 }
+const arch = await api('GET', `/api/projects/${pid}/export`);
+arch.projects[0].schema.nodeTypes.push({ id: 'nt_smoke_unit', name: 'Capítulo', base: 'Unit', attributes: [] });
+const badImport = await api('POST', '/api/import', arch, 400);
+const afterImport = (await api('GET', '/api/projects')).filter((p) => p.name.startsWith(arch.projects[0].name + ' ('));
+check(badImport.detail.includes('motor narrativo') && afterImport.length === 0, 'import com tipo-base Unit num contexto não narrativo é recusado sem gravar nada');
 
 console.log('# MCP');
 async function mcp(sessionId, method, params, idn) {
@@ -194,6 +202,10 @@ check(briefing.sessionId && briefing.foundationalFacts.length >= 1 && briefing.n
 check(!('outline' in briefing) && !('openThreads' in briefing) && !('words' in (briefing.stats ?? {})), 'briefing sem estrutura narrativa, ganchos ou palavras');
 check(briefing.guidance.some((g) => g.includes('Contexto: Smoke')), 'briefing traz o contexto do projeto');
 const s = briefing.sessionId;
+for (const [name, args] of [['open_threads', {}], ['writing_context', { unitId: id.$billing }], ['story_outline', {}], ['milestone_coverage', {}]]) {
+  const r = await tool(name, { projectId: pid, ...args });
+  check(r.isError && r.text.includes('motor narrativo'), `tool ${name} recusa com erro claro fora do narrativo`);
+}
 const noVersion = await tool('propose_changes', { projectId: pid, title: 'llm', sessionId: s, operations: [{ op: 'update_node', id: id.$ledger, summary: 'sem versão' }] });
 check(noVersion.isError && noVersion.text.includes('expectedVersion'), 'LLM sem expectedVersion é barrada');
 const p1 = await tool('propose_changes', { projectId: pid, title: 'a', sessionId: s, operations: [{ op: 'create_node', ref: '$erp', type: 'Sistema', name: 'ERP' }] });

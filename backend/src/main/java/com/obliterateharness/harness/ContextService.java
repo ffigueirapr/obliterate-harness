@@ -139,6 +139,11 @@ public class ContextService {
         return repo.get(c).map(r -> isNarrative(r.baseContext(), 0)).orElse(false);
     }
 
+    /** Whether a context (built-in or custom, by id) runs the narrative engine: the narrative context or one based on it. */
+    public boolean narrativeContext(String contextId) {
+        return isNarrative(contextId, 0);
+    }
+
     /** The context a project belongs to (narrative for projects from before contexts). */
     public Optional<ContextView> ofProject(Views.Project p, Lang lang) {
         String id = p.context() == null ? ProjectService.NARRATIVE_CONTEXT : p.context();

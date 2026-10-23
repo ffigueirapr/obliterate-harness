@@ -5,6 +5,7 @@ import com.obliterateharness.domain.Views;
 import com.obliterateharness.harness.ExportService;
 import com.obliterateharness.harness.GuidanceService;
 import com.obliterateharness.harness.HarnessLibrary;
+import com.obliterateharness.harness.NarrativeGuard;
 import com.obliterateharness.harness.NarrativeService;
 import com.obliterateharness.harness.ProfileService;
 import com.obliterateharness.harness.TemplateService;
@@ -12,7 +13,6 @@ import com.obliterateharness.harness.TextDiff;
 import com.obliterateharness.harness.UnitService;
 import com.obliterateharness.i18n.I18n;
 import com.obliterateharness.service.ChangesetService;
-import com.obliterateharness.service.ProjectService;
 import com.obliterateharness.store.TextVersionRepository;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -55,10 +55,10 @@ public class HarnessController {
     private final GuidanceService guidance;
     private final UnitService units;
     private final ExportService export;
-    private final ProjectService projects;
+    private final NarrativeGuard guard;
 
     public HarnessController(HarnessLibrary library, ProfileService profiles, TemplateService templates, NarrativeService narrative,
-                             GuidanceService guidance, UnitService units, ExportService export, ProjectService projects) {
+                             GuidanceService guidance, UnitService units, ExportService export, NarrativeGuard guard) {
         this.library = library;
         this.profiles = profiles;
         this.templates = templates;
@@ -66,7 +66,7 @@ public class HarnessController {
         this.guidance = guidance;
         this.units = units;
         this.export = export;
-        this.projects = projects;
+        this.guard = guard;
     }
 
     // ---------- library (in the UI language) ----------
@@ -88,6 +88,7 @@ public class HarnessController {
 
     @PostMapping("/harness/templates/derive")
     public HarnessLibrary.TemplateDef derive(@RequestBody DeriveInput in) {
+        guard.require(in.fromProjectId(), "template_derive");
         return templates.derive(in.fromProjectId(), in.unitType(), in.name(), in.description(), Boolean.TRUE.equals(in.includeChildren()));
     }
 
@@ -110,26 +111,31 @@ public class HarnessController {
 
     @GetMapping("/projects/{pid}/templates")
     public List<TemplateService.AppliedTemplate> applied(@PathVariable String pid) {
+        guard.require(pid, "templates");
         return templates.applied(pid);
     }
 
     @PostMapping("/projects/{pid}/templates/apply")
     public ChangesetService.Proposal applyTemplate(@PathVariable String pid, @RequestBody TemplateInput in) {
+        guard.require(pid, "template_apply");
         return templates.apply(pid, in.templateId(), in.unitType(), in.plannedUnits(), in.scopeUnitId(), Actor.human);
     }
 
     @GetMapping("/projects/{pid}/coverage")
     public List<TemplateService.Coverage> coverage(@PathVariable String pid) {
+        guard.require(pid, "milestone_coverage");
         return templates.coverageAll(pid);
     }
 
     @GetMapping("/projects/{pid}/templates/{tid}/coverage")
     public TemplateService.Coverage coverageOf(@PathVariable String pid, @PathVariable String tid) {
+        guard.require(pid, "milestone_coverage");
         return templates.coverage(pid, tid);
     }
 
     @GetMapping("/projects/{pid}/threads")
     public List<NarrativeService.Thread> threads(@PathVariable String pid, @RequestParam(defaultValue = "false") boolean includeClosed) {
+        guard.require(pid, "open_threads");
         return narrative.openThreads(pid, includeClosed);
     }
 
@@ -138,6 +144,7 @@ public class HarnessController {
                                                           @RequestParam(required = false) Integer maxTokens,
                                                           @RequestParam(required = false) Integer tailParagraphs,
                                                           @RequestParam(required = false) List<String> focus) {
+        guard.require(pid, "writing_context");
         return narrative.writingContext(pid, unitId, maxTokens, tailParagraphs, focus);
     }
 
@@ -150,31 +157,37 @@ public class HarnessController {
 
     @GetMapping("/projects/{pid}/units/{unitId}/text")
     public UnitService.TextRead getText(@PathVariable String pid, @PathVariable String unitId, @RequestParam(required = false) Integer version) {
+        guard.require(pid, "unit_text_get");
         return units.getText(pid, unitId, version, null);
     }
 
     @PutMapping("/projects/{pid}/units/{unitId}/text")
     public UnitService.TextWrite setText(@PathVariable String pid, @PathVariable String unitId, @RequestBody TextInput in) {
+        guard.require(pid, "unit_text_set");
         return units.setText(pid, unitId, in.text(), in.mode(), in.attribute(), in.separator(), in.note(), Actor.human, null);
     }
 
     @GetMapping("/projects/{pid}/units/{unitId}/text/history")
     public List<TextVersionRepository.Version> textHistory(@PathVariable String pid, @PathVariable String unitId) {
+        guard.require(pid, "unit_text_history");
         return units.history(pid, unitId);
     }
 
     @GetMapping("/projects/{pid}/units/{unitId}/text/diff")
     public TextDiff.Result textDiff(@PathVariable String pid, @PathVariable String unitId, @RequestParam int from, @RequestParam(required = false) Integer to) {
+        guard.require(pid, "unit_text_diff");
         return units.diff(pid, unitId, from, to);
     }
 
     @PutMapping("/projects/{pid}/units/{unitId}/cast")
     public ChangesetService.Proposal setCast(@PathVariable String pid, @PathVariable String unitId, @RequestBody CastInput in) {
+        guard.require(pid, "unit_cast_set");
         return units.setCast(pid, unitId, in.nodeIds(), in.mode(), Actor.human, null);
     }
 
     @PostMapping("/projects/{pid}/units/{unitId}/validate")
     public UnitService.Validation validate(@PathVariable String pid, @PathVariable String unitId, @RequestBody(required = false) ValidateInput in) {
+        guard.require(pid, "unit_validate");
         return units.validate(pid, unitId, in == null ? null : in.text());
     }
 
@@ -184,7 +197,7 @@ public class HarnessController {
     public ResponseEntity<byte[]> exportManuscript(@PathVariable String pid, @RequestParam(defaultValue = "md") String format,
                                                    @RequestParam(required = false) String rootUnitId,
                                                    @RequestParam(required = false) List<String> unitTypes) {
-        projects.get(pid);
+        guard.require(pid, "manuscript_export");
         var file = export.export(pid, format, rootUnitId, unitTypes);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(file.filename(), StandardCharsets.UTF_8).build().toString())
